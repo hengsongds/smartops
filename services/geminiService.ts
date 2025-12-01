@@ -1,8 +1,7 @@
 import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { OpsConfig, IntentAnalysisResult, Language, ConfigType } from "../types";
 
-const apiKey = process.env.API_KEY || '';
-const ai = new GoogleGenAI({ apiKey });
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 // Schema for the structured output we want from Gemini
 const analysisSchema: Schema = {
@@ -102,7 +101,7 @@ export const analyzeUserIntent = async (
   const executableConfigs = availableConfigs.filter(c => c.type !== ConfigType.ENV);
 
   // If no API key is set, immediately fail over to local fallback
-  if (!apiKey) {
+  if (!process.env.API_KEY) {
     return performLocalFallbackAnalysis(userMessage, executableConfigs, language);
   }
 

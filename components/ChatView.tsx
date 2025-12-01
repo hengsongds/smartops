@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Play, ChevronRight, AlertCircle, Info, Code, Terminal, Copy, Check, Maximize2, X, ChevronDown, ChevronUp, Loader2, StopCircle } from 'lucide-react';
+import { Send, Bot, User, Play, ChevronRight, AlertCircle, Info, Code, Terminal, Copy, Check, Maximize2, X, ChevronDown, ChevronUp, Loader2, StopCircle, Sparkles } from 'lucide-react';
 import { Message, OpsConfig, Language, ConfigType, ExecutionLog } from '../types';
 import { analyzeUserIntent } from '../services/geminiService';
 
@@ -31,6 +31,7 @@ const translations = {
     runBackup: "Run Backup",
     executing: "Executing",
     success: "Execution Successful",
+    failure: "Execution Failed",
     cancelled: "Execution Cancelled",
     runBtn: "Execute",
     error: "Error processing request.",
@@ -56,6 +57,7 @@ const translations = {
     runBackup: "执行数据库备份",
     executing: "执行中",
     success: "执行成功",
+    failure: "执行失败",
     cancelled: "已取消执行",
     runBtn: "立即运行",
     error: "处理请求时出错。",
@@ -255,6 +257,10 @@ export const ChatView: React.FC<ChatViewProps> = ({ sessionId, initialMessages, 
   
   // Execution Queue State
   const [executionQueue, setExecutionQueue] = useState<string[]>([]);
+
+  // IME Composition State
+  const [isComposing, setIsComposing] = useState(false);
+
   // Use ref for locking to prevent re-renders or strict mode double-invocation issues
   const isProcessingRef = useRef(false);
   const currentAbortController = useRef<AbortController | null>(null);
@@ -263,7 +269,6 @@ export const ChatView: React.FC<ChatViewProps> = ({ sessionId, initialMessages, 
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Initialize messages from props
-  // Note: if initialMessages is empty, we add welcome. But we must respect history.
   const [messages, setMessages] = useState<Message[]>([]);
 
   // Sync messages from props when Session ID changes
@@ -279,11 +284,10 @@ export const ChatView: React.FC<ChatViewProps> = ({ sessionId, initialMessages, 
             timestamp: getFormattedTimestamp()
          }]);
      }
-  }, [sessionId, language]); // Added language dep to update welcome msg text if needed (though history persists language)
+  }, [sessionId, language]);
 
   // Report changes back to parent
   useEffect(() => {
-      // Avoid circular updates or unnecessary calls
       if (messages !== initialMessages) {
           onSessionUpdate(messages);
       }
@@ -307,18 +311,14 @@ export const ChatView: React.FC<ChatViewProps> = ({ sessionId, initialMessages, 
   const handleCancelExecution = (msgId: string) => {
     if (currentAbortController.current) {
         currentAbortController.current.abort();
-        // UI update for cancelled state is handled in the catch block of processQueue
     }
   };
 
   // Queue Processing Logic
   useEffect(() => {
     const processQueue = async () => {
-      // If already processing or queue is empty, do nothing
-      // We use a Ref for isProcessing to ensure immediate synchronous locking
       if (isProcessingRef.current || executionQueue.length === 0) return;
 
-      // Lock immediately
       isProcessingRef.current = true;
       const configId = executionQueue[0];
       const config = configs.find(c => c.id === configId);
@@ -343,34 +343,47 @@ export const ChatView: React.FC<ChatViewProps> = ({ sessionId, initialMessages, 
             let resolvedContent = config.content;
             const envConfigs = configs.filter(c => c.type === ConfigType.ENV);
             
-            // Replace ${VAR_NAME} with actual value
+            // Replace variables with actual values
             envConfigs.forEach(env => {
-                const placeholder = `\${${env.name}}`;
-                resolvedContent = resolvedContent.split(placeholder).join(env.content);
+                if (env.name) {
+                    const patterns = [`\${${env.name}}`, `$(${env.name})`];
+                    patterns.forEach(pattern => {
+                         resolvedContent = resolvedContent.split(pattern).join(env.content);
+                    });
+                }
             });
 
-            // 2. Simulate Delay (Network request) with cancellation support
-            // Increased delay to 5s to allow user time to click Cancel
+            // Start Time Measurement
+            const startTime = Date.now();
+
+            // 2. Simulate Delay
+            const simulatedDelay = Math.floor(Math.random() * 500) + 300;
+            
             await new Promise<void>((resolve, reject) => {
                 const timer = setTimeout(() => {
                     resolve();
-                }, 5000); 
+                }, simulatedDelay); 
 
                 controller.signal.addEventListener('abort', () => {
                     clearTimeout(timer);
-                    reject(new DOMException('Aborted', 'AbortError'));
+                    const error = new Error('Aborted');
+                    error.name = 'AbortError';
+                    reject(error);
                 });
             });
 
+            // Calculate actual elapsed time
+            const endTime = Date.now();
+            const actualDuration = endTime - startTime;
+
             // 3. Generate Response
-            const { output, status, returnCode, summary, duration } = generateMockResponse(config);
+            const { output, status, returnCode, summary, duration } = generateMockResponse(config, actualDuration);
 
             // 4. Log Execution & Generate cURL
             let requestSnapshot = "";
             let generatedCurl = "";
 
             if (config.type === ConfigType.API) {
-                // If it's a JSON string, try to pretty print the resolved content
                 try {
                     const jsonObj = JSON.parse(resolvedContent);
                     generatedCurl = buildCurlCommand(config.method || 'GET', jsonObj);
@@ -397,24 +410,24 @@ export const ChatView: React.FC<ChatViewProps> = ({ sessionId, initialMessages, 
                 responseSnapshot: output
             });
 
-            // Update execution message to completed state (visual cleanup) or keep it as history
-            // Here we append a NEW success message as per original design, but update the executing one to remove spinner? 
-            // Better UX: Update the "Executing" message to be "Completed" or just leave it and append Success.
-            // Let's just update the previous message to remove EXECUTING status so the button disappears
+            // Update execution message to completed state (visual cleanup)
             setMessages(prev => prev.map(m => m.id === execMsgId ? { ...m, status: undefined } : m));
 
-            // 5. Add "Success" message
+            // 5. Add "Success" or "Failure" message
+            const resultTitle = status === 'SUCCESS' ? t.success : t.failure;
+            const resultIcon = status === 'SUCCESS' ? '✅' : '❌';
+            
             setMessages(prev => [...prev, {
                 id: (Date.now() + 100).toString(),
                 role: 'bot',
-                content: `✅ **${t.success}**: ${config.name}\n\n${output}`,
+                content: `${resultIcon} **${resultTitle}**: ${config.name}\n\n${output}`,
                 timestamp: getFormattedTimestamp(),
-                curlCommand: generatedCurl // Attach generated curl
+                curlCommand: generatedCurl,
+                isError: status === 'FAILURE'
             }]);
         }
       } catch (error: any) {
           if (error.name === 'AbortError') {
-              // Handle Cancellation
               setMessages(prev => prev.map(m => m.id === execMsgId ? {
                   ...m,
                   content: `🚫 **${t.cancelled}**: ${config?.name}`,
@@ -445,7 +458,6 @@ export const ChatView: React.FC<ChatViewProps> = ({ sessionId, initialMessages, 
               }]);
           }
       } finally {
-        // 6. Remove processed item from queue and release lock
         setExecutionQueue(prev => prev.slice(1));
         isProcessingRef.current = false;
         currentAbortController.current = null;
@@ -453,7 +465,7 @@ export const ChatView: React.FC<ChatViewProps> = ({ sessionId, initialMessages, 
     };
 
     processQueue();
-  }, [executionQueue, configs, onLogExecute, t]);
+  }, [executionQueue, configs, onLogExecute, t]); 
 
   const handleSendMessage = async (text: string = inputValue) => {
     if (!text.trim()) return;
@@ -467,8 +479,9 @@ export const ChatView: React.FC<ChatViewProps> = ({ sessionId, initialMessages, 
 
     setMessages(prev => [...prev, userMsg]);
     setInputValue('');
-    setIsTyping(true);
 
+    // --- NATURAL LANGUAGE MODE LOGIC ---
+    setIsTyping(true);
     try {
       const result = await analyzeUserIntent(text, configs, language);
       
@@ -494,12 +507,14 @@ export const ChatView: React.FC<ChatViewProps> = ({ sessionId, initialMessages, 
     }
   };
 
-  const generateMockResponse = (config: OpsConfig): { output: string; status: 'SUCCESS' | 'FAILURE'; returnCode: number; summary: string; duration: number } => {
+  const generateMockResponse = (config: OpsConfig, elapsedMs: number): { output: string; status: 'SUCCESS' | 'FAILURE'; returnCode: number; summary: string; duration: number } => {
     let output = "";
     let status: 'SUCCESS' | 'FAILURE' = 'SUCCESS';
     let returnCode = 200;
     let summary = "";
-    const duration = Math.floor(Math.random() * 200) + 50;
+    
+    // Use actual elapsed time from simulation for consistency
+    const duration = elapsedMs;
     
     if (config.type === ConfigType.API) {
          returnCode = 200;
@@ -747,44 +762,50 @@ export const ChatView: React.FC<ChatViewProps> = ({ sessionId, initialMessages, 
   return (
     <div className="flex flex-col h-full bg-gray-50 dark:bg-[#121212]">
       {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-6" ref={scrollRef}>
+      <div 
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar scroll-smooth"
+      >
         {messages.map((msg) => (
-          <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`flex max-w-[85%] md:max-w-[75%] gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
-              {/* Avatar */}
-              <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
-                msg.role === 'user' 
-                  ? 'bg-blue-600 text-white' 
-                  : 'bg-indigo-600 text-white'
-              }`}>
-                {msg.role === 'user' ? <User size={16} /> : <Bot size={16} />}
-              </div>
-              
-              {/* Bubble */}
-              <div className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-                  <div className={`px-4 py-3 rounded-2xl shadow-sm text-sm ${
-                    msg.role === 'user'
-                      ? 'bg-blue-600 text-white rounded-tr-sm'
-                      : 'bg-white dark:bg-[#1e1e1e] border border-gray-100 dark:border-[#333333] text-gray-800 dark:text-gray-200 rounded-tl-sm'
-                  }`}>
+          <div key={msg.id} className={`flex gap-4 ${msg.role === 'user' ? 'flex-row-reverse' : ''} animate-fade-in`}>
+             {/* Avatar */}
+             <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                 msg.role === 'bot' 
+                 ? (msg.isError ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400')
+                 : 'bg-gray-200 text-gray-600 dark:bg-[#333333] dark:text-gray-300'
+             }`}>
+                {msg.role === 'bot' ? (msg.isError ? <AlertCircle size={18} /> : <Bot size={18} />) : <User size={18} />}
+             </div>
+             
+             {/* Content Bubble */}
+             <div className={`flex flex-col max-w-[85%] ${msg.role === 'user' ? 'items-end' : 'items-start'} min-w-0`}>
+                 <div className="flex items-center gap-2 mb-1">
+                     <span className="text-xs text-gray-400 font-medium">{msg.role === 'bot' ? 'SmartOps' : 'You'}</span>
+                     <span className="text-[10px] text-gray-300 dark:text-gray-600">{msg.timestamp.split(' ')[1]}</span>
+                 </div>
+                 <div className={`px-4 py-3 rounded-2xl shadow-sm text-sm leading-relaxed overflow-hidden max-w-full ${
+                     msg.role === 'user' 
+                     ? 'bg-blue-600 text-white rounded-tr-none' 
+                     : (msg.isError 
+                         ? 'bg-red-50 text-red-800 border border-red-100 dark:bg-red-900/10 dark:text-red-300 dark:border-red-900/30 rounded-tl-none'
+                         : 'bg-white dark:bg-[#1e1e1e] text-gray-800 dark:text-gray-200 border border-gray-100 dark:border-[#333333] rounded-tl-none')
+                 }`}>
                      {renderMessageContent(msg)}
-                  </div>
-                  <span className="text-[10px] text-gray-400 mt-1 px-1">{msg.timestamp.split(' ')[1]}</span>
-              </div>
-            </div>
+                 </div>
+             </div>
           </div>
         ))}
+
+        {/* Typing Indicator */}
         {isTyping && (
-           <div className="flex justify-start">
-              <div className="flex max-w-[85%] gap-3">
-                 <div className="flex-shrink-0 w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center">
-                    <Bot size={16} />
-                 </div>
-                 <div className="bg-white dark:bg-[#1e1e1e] px-4 py-3 rounded-2xl rounded-tl-sm border border-gray-100 dark:border-[#333333] flex items-center gap-1">
-                    <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></span>
-                    <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-75"></span>
-                    <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-150"></span>
-                 </div>
+           <div className="flex gap-4 animate-fade-in">
+              <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 flex items-center justify-center flex-shrink-0">
+                  <Bot size={18} />
+              </div>
+              <div className="bg-white dark:bg-[#1e1e1e] px-4 py-3 rounded-2xl rounded-tl-none border border-gray-100 dark:border-[#333333] shadow-sm flex items-center gap-1">
+                  <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
+                  <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+                  <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
               </div>
            </div>
         )}
@@ -793,30 +814,57 @@ export const ChatView: React.FC<ChatViewProps> = ({ sessionId, initialMessages, 
       {/* Input Area */}
       <div className="p-4 bg-white dark:bg-[#1e1e1e] border-t border-gray-200 dark:border-[#333333]">
          {/* Quick Actions */}
-         {messages.length === 1 && (
-            <div className="flex gap-2 mb-4 overflow-x-auto pb-2 scrollbar-hide">
-               <QuickAction label={t.cmdList} onClick={() => handleSendMessage(t.cmdList)} />
-               <QuickAction label={t.checkServer} onClick={() => handleSendMessage(t.checkServer)} />
-               <QuickAction label={t.runBackup} onClick={() => handleSendMessage(t.runBackup)} />
-            </div>
+         {messages.length <= 1 && (
+             <div className="flex gap-2 mb-4 overflow-x-auto pb-2 custom-scrollbar">
+                 <QuickAction label={t.cmdList} onClick={() => handleSendMessage(t.cmdList)} />
+                 <QuickAction label={t.checkServer} onClick={() => handleSendMessage(t.checkServer)} />
+                 <QuickAction label={t.runBackup} onClick={() => handleSendMessage(t.runBackup)} />
+             </div>
          )}
          
-         <div className="relative flex items-center gap-2">
-            <input
-              type="text"
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
-              placeholder={t.placeholder}
-              className="flex-1 px-4 py-3 bg-gray-50 dark:bg-[#2d2d2d] border border-gray-200 dark:border-[#404040] rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all text-sm text-gray-800 dark:text-gray-100"
-            />
-            <button
-              onClick={() => handleSendMessage()}
-              disabled={!inputValue.trim() || isTyping}
-              className="p-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 dark:disabled:bg-[#404040] text-white rounded-xl transition-colors shadow-sm flex-shrink-0"
-            >
-              <Send size={20} />
-            </button>
+         <div className="relative flex items-end gap-2 border border-gray-200 dark:border-[#404040] rounded-xl p-2 transition-colors focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-500 shadow-sm bg-gray-50 dark:bg-[#2d2d2d]">
+             <div className="flex-1 flex gap-2 w-full items-center">
+                 <textarea 
+                    value={inputValue}
+                    onChange={(e) => setInputValue(e.target.value)}
+                    onCompositionStart={() => setIsComposing(true)}
+                    onCompositionEnd={() => setIsComposing(false)}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                            if (isComposing || e.nativeEvent.isComposing) {
+                                return;
+                            }
+                            e.preventDefault();
+                            handleSendMessage();
+                        }
+                    }}
+                    placeholder={t.placeholder}
+                    className="w-full bg-transparent border-none focus:ring-0 resize-none max-h-32 min-h-[44px] py-2.5 px-2 text-sm placeholder-gray-400 dark:placeholder-gray-500 text-gray-900 dark:text-gray-100"
+                    rows={1}
+                    style={{ height: 'auto', minHeight: '44px' }}
+                    onInput={(e) => {
+                        const target = e.target as HTMLTextAreaElement;
+                        target.style.height = 'auto';
+                        target.style.height = `${Math.min(target.scrollHeight, 128)}px`;
+                    }}
+                 />
+             </div>
+             <button 
+                onClick={() => handleSendMessage()}
+                disabled={!inputValue.trim() || isTyping}
+                className={`p-2.5 rounded-lg mb-0.5 transition-all duration-200 flex-shrink-0 ${
+                    !inputValue.trim() || isTyping
+                    ? 'bg-gray-200 dark:bg-[#404040] text-gray-400 cursor-not-allowed'
+                    : 'bg-blue-600 hover:bg-blue-700 text-white shadow-md hover:scale-105 active:scale-95'
+                }`}
+             >
+                 <Send size={18} />
+             </button>
+         </div>
+         <div className="text-center mt-2">
+             <span className="text-[10px] text-gray-400 dark:text-gray-500">
+                 SmartOps AI can make mistakes. Consider checking important information.
+             </span>
          </div>
       </div>
     </div>

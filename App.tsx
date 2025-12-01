@@ -11,7 +11,8 @@ import {
   Plus,
   MessageCircle,
   ChevronDown,
-  ChevronRight
+  ChevronRight,
+  Trash2
 } from 'lucide-react';
 import { ChatView } from './components/ChatView';
 import { ConfigView } from './components/ConfigView';
@@ -153,7 +154,7 @@ type View = 'CHAT' | 'CONFIG' | 'MONITOR' | 'LOGS' | 'SETTINGS';
 
 const translations = {
   en: {
-    smartChat: "Chat & Operations",
+    smartChat: "Say Something",
     configCenter: "Configuration",
     monitoring: "Monitoring",
     logs: "Logs",
@@ -164,7 +165,7 @@ const translations = {
     historyLimit: "Only recent 5 sessions kept"
   },
   zh: {
-    smartChat: "智能对话",
+    smartChat: "说些什么",
     configCenter: "配置中心",
     monitoring: "监控大盘",
     logs: "日志查询",
@@ -186,8 +187,11 @@ export default function App() {
   const [appTitle, setAppTitle] = useState('Optimus');
   const [appLogo, setAppLogo] = useState<string>('https://jdcloud-portal.oss.cn-north-1.jcloudcs.com/www.jcloud.com/12968f00-b6ef-4d07-bbcf-d4aec5b0d93820220520194921.png');
   
-  // New State for customizable Chat Module Name
-  const [chatTitle, setChatTitle] = useState('说些什么');
+  // New State for customizable Chat Module Name (Support Bilingual)
+  const [customChatTitles, setCustomChatTitles] = useState<{en: string; zh: string}>({
+    en: '',
+    zh: ''
+  });
 
   // Session State
   const [sessions, setSessions] = useState<ChatSession[]>([
@@ -205,6 +209,11 @@ export default function App() {
 
   // Helper to get active session
   const activeSession = sessions.find(s => s.id === activeSessionId) || sessions[0];
+  
+  // Compute display title: 
+  // Strictly use current language config or system default.
+  // Previous fallback logic caused confusion where one language title would persist to another.
+  const displayChatTitle = customChatTitles[language] || t.smartChat;
 
   const handleAddConfig = (newConfig: OpsConfig) => {
     setConfigs([...configs, newConfig]);
@@ -257,6 +266,33 @@ export default function App() {
     }));
   };
 
+  const handleDeleteSession = (e: React.MouseEvent, sessionId: string) => {
+    e.stopPropagation();
+    
+    setSessions(prev => {
+      const remaining = prev.filter(s => s.id !== sessionId);
+      if (remaining.length === 0) {
+        // Create default session if all deleted
+        const newSession: ChatSession = {
+            id: Date.now().toString(),
+            title: language === 'zh' ? '新会话' : 'New Session',
+            messages: [],
+            lastUpdated: Date.now()
+        };
+        setActiveSessionId(newSession.id);
+        return [newSession];
+      }
+      
+      if (sessionId === activeSessionId) {
+          // Switch to first available
+          // Since render uses sort, we might want to respect that logic or just take first. 
+          // Taking first from filtered is safe enough for this purpose.
+          setActiveSessionId(remaining[0].id);
+      }
+      return remaining;
+    });
+  };
+
   const renderContent = () => {
     switch (currentView) {
       case 'CHAT':
@@ -286,8 +322,8 @@ export default function App() {
             onAppTitleChange={setAppTitle}
             appLogo={appLogo}
             onAppLogoChange={setAppLogo}
-            chatTitle={chatTitle}
-            onChatTitleChange={setChatTitle}
+            customChatTitles={customChatTitles}
+            onCustomChatTitlesChange={setCustomChatTitles}
         />;
       case 'MONITOR':
         return <MonitorView logs={logs} language={language} />;
@@ -331,7 +367,7 @@ export default function App() {
                  <div className="mb-2">
                     <NavItem 
                         icon={<MessageSquare size={20} />} 
-                        label={chatTitle} 
+                        label={displayChatTitle} 
                         active={currentView === 'CHAT'} 
                         onClick={() => {
                             if (currentView === 'CHAT') {
@@ -363,19 +399,27 @@ export default function App() {
 
                             {/* Session List */}
                             {sessions.sort((a,b) => b.lastUpdated - a.lastUpdated).map(session => (
-                                <button
-                                    key={session.id}
-                                    onClick={() => setActiveSessionId(session.id)}
-                                    className={`w-full text-left px-3 py-2 rounded-md flex items-center gap-2 text-sm transition-colors truncate
-                                        ${activeSessionId === session.id 
-                                            ? 'bg-[#333333] text-white' 
-                                            : 'text-[#888] hover:text-[#ccc] hover:bg-[#252525]'
-                                        }`}
-                                    title={session.title}
-                                >
-                                    <MessageCircle size={14} className="flex-shrink-0" />
-                                    <span className="truncate">{session.title}</span>
-                                </button>
+                                <div key={session.id} className="group relative">
+                                    <button
+                                        onClick={() => setActiveSessionId(session.id)}
+                                        className={`w-full text-left px-3 py-2 rounded-md flex items-center gap-2 text-sm transition-colors truncate pr-8
+                                            ${activeSessionId === session.id 
+                                                ? 'bg-[#333333] text-white' 
+                                                : 'text-[#888] hover:text-[#ccc] hover:bg-[#252525]'
+                                            }`}
+                                        title={session.title}
+                                    >
+                                        <MessageCircle size={14} className="flex-shrink-0" />
+                                        <span className="truncate">{session.title}</span>
+                                    </button>
+                                    <button 
+                                        onClick={(e) => handleDeleteSession(e, session.id)}
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity rounded-md hover:bg-[#333333]"
+                                        title={language === 'zh' ? "删除会话" : "Delete Session"}
+                                    >
+                                        <Trash2 size={12} />
+                                    </button>
+                                </div>
                             ))}
                         </div>
                     )}
@@ -429,7 +473,7 @@ export default function App() {
             <h1 className="text-xl font-semibold text-gray-800 dark:text-white capitalize flex items-center gap-2">
                 {currentView === 'CHAT' ? (
                      <>
-                        <span>{chatTitle}</span>
+                        <span>{displayChatTitle}</span>
                         <span className="text-gray-400 text-sm font-normal">/ {activeSession.title}</span>
                      </>
                 ) : (

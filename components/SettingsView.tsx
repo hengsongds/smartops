@@ -10,8 +10,8 @@ interface SettingsViewProps {
   onAppTitleChange: (title: string) => void;
   appLogo: string;
   onAppLogoChange: (logo: string) => void;
-  chatTitle: string;
-  onChatTitleChange: (title: string) => void;
+  customChatTitles: { en: string; zh: string };
+  onCustomChatTitlesChange: (titles: { en: string; zh: string }) => void;
 }
 
 const translations = {
@@ -21,7 +21,7 @@ const translations = {
     sysName: "System Name",
     sysNamePlaceholder: "e.g. SmartOps Platform",
     chatName: "Chat Module Name",
-    chatNamePlaceholder: "e.g. Smart Chat",
+    chatNamePlaceholder: "Default: Say Something",
     logoLabel: "System Logo",
     logoUrl: "Image URL",
     logoUpload: "Upload Image",
@@ -38,7 +38,9 @@ const translations = {
     version: "Version",
     save: "Save Configuration",
     saved: "Saved!",
-    unsaved: "Unsaved Changes"
+    unsaved: "Unsaved Changes",
+    editingLang: "Editing for current language:",
+    leaveEmpty: "Leave empty to use default localized name"
   },
   zh: {
     title: "系统设置",
@@ -46,7 +48,7 @@ const translations = {
     sysName: "系统名称",
     sysNamePlaceholder: "例如：SmartOps 智能运维平台",
     chatName: "对话模块名称",
-    chatNamePlaceholder: "例如：智能对话",
+    chatNamePlaceholder: "默认：说些什么",
     logoLabel: "系统 Logo",
     logoUrl: "图片链接",
     logoUpload: "上传图片",
@@ -63,27 +65,29 @@ const translations = {
     version: "当前版本",
     save: "保存配置",
     saved: "已保存！",
-    unsaved: "有未保存的更改"
+    unsaved: "有未保存的更改",
+    editingLang: "当前编辑语言：",
+    leaveEmpty: "留空以使用默认多语言名称"
   }
 };
 
-export const SettingsView: React.FC<SettingsViewProps> = ({ language, theme, onThemeChange, appTitle, onAppTitleChange, appLogo, onAppLogoChange, chatTitle, onChatTitleChange }) => {
+export const SettingsView: React.FC<SettingsViewProps> = ({ language, theme, onThemeChange, appTitle, onAppTitleChange, appLogo, onAppLogoChange, customChatTitles, onCustomChatTitlesChange }) => {
   const t = translations[language];
   const [logoMode, setLogoMode] = useState<'URL' | 'FILE'>('URL');
   
   // Local state for form fields to support explicit saving
   const [localTitle, setLocalTitle] = useState(appTitle);
-  const [localChatTitle, setLocalChatTitle] = useState(chatTitle);
+  const [localChatTitles, setLocalChatTitles] = useState(customChatTitles);
   const [localLogo, setLocalLogo] = useState(appLogo);
   const [isSaved, setIsSaved] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
 
-  // Sync local state if props change externally (unlikely but good practice)
+  // Sync local state if props change externally
   useEffect(() => {
     setLocalTitle(appTitle);
-    setLocalChatTitle(chatTitle);
+    setLocalChatTitles(customChatTitles);
     setLocalLogo(appLogo);
-  }, [appTitle, appLogo, chatTitle]);
+  }, [appTitle, appLogo, customChatTitles]);
 
   const handleTitleChange = (val: string) => {
     setLocalTitle(val);
@@ -92,7 +96,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ language, theme, onT
   };
   
   const handleChatTitleChange = (val: string) => {
-    setLocalChatTitle(val);
+    setLocalChatTitles({
+        ...localChatTitles,
+        [language]: val
+    });
     setHasChanges(true);
     setIsSaved(false);
   };
@@ -105,7 +112,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ language, theme, onT
 
   const handleSave = () => {
       onAppTitleChange(localTitle);
-      onChatTitleChange(localChatTitle);
+      onCustomChatTitlesChange(localChatTitles);
       onAppLogoChange(localLogo);
       
       setHasChanges(false);
@@ -131,6 +138,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ language, theme, onT
         reader.readAsDataURL(file);
     }
   };
+
+  // Simplified placeholder - removed fallback logic
+  const dynamicPlaceholder = t.chatNamePlaceholder;
 
   return (
     <div className="max-w-4xl mx-auto py-8 px-4 overflow-y-auto h-full flex flex-col relative">
@@ -164,15 +174,23 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ language, theme, onT
                 
                 {/* Chat Module Name */}
                 <div className="flex flex-col gap-2">
-                    <label className="text-gray-700 dark:text-gray-300 font-medium text-sm">{t.chatName}</label>
+                    <label className="text-gray-700 dark:text-gray-300 font-medium text-sm flex justify-between">
+                        {t.chatName}
+                        <span className="text-blue-500 font-normal text-xs bg-blue-50 dark:bg-blue-900/20 px-2 py-0.5 rounded">
+                            {t.editingLang} {language === 'en' ? 'English' : '中文'}
+                        </span>
+                    </label>
                     <div>
                         <input 
                             type="text"
-                            value={localChatTitle}
+                            value={localChatTitles[language]}
                             onChange={(e) => handleChatTitleChange(e.target.value)}
-                            placeholder={t.chatNamePlaceholder}
+                            placeholder={dynamicPlaceholder}
                             className="w-full px-4 py-2 border border-gray-300 dark:border-[#404040] rounded-lg bg-white dark:bg-[#2d2d2d] focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none text-gray-900 dark:text-gray-100 transition-all"
                         />
+                         <p className="text-[10px] text-gray-400 mt-1 ml-1">
+                            {t.leaveEmpty}
+                        </p>
                     </div>
                 </div>
              </div>
