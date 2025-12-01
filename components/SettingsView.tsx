@@ -1,44 +1,231 @@
-import React from 'react';
-import { Moon, Sun, Monitor } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Moon, Sun, Monitor, Type, Upload, Link as LinkIcon, Terminal, Save, Check } from 'lucide-react';
 import { Language, Theme } from '../types';
 
 interface SettingsViewProps {
   language: Language;
   theme: Theme;
   onThemeChange: (theme: Theme) => void;
+  appTitle: string;
+  onAppTitleChange: (title: string) => void;
+  appLogo: string;
+  onAppLogoChange: (logo: string) => void;
 }
 
 const translations = {
   en: {
     title: "System Settings",
+    general: "Basic Settings",
+    sysName: "System Name",
+    sysNamePlaceholder: "e.g. SmartOps Platform",
+    logoLabel: "System Logo",
+    logoUrl: "Image URL",
+    logoUpload: "Upload Image",
+    logoHelp: "Support URL or Local File (Max 2MB)",
+    preview: "Preview",
+    browse: "Browse",
+    remove: "Remove Logo",
     appearance: "Appearance",
     theme: "Theme Mode",
     light: "Light",
     dark: "Dark",
     lang: "Language",
     about: "About",
-    version: "Version"
+    version: "Version",
+    save: "Save Configuration",
+    saved: "Saved!",
+    unsaved: "Unsaved Changes"
   },
   zh: {
     title: "系统设置",
+    general: "基础设置",
+    sysName: "系统名称",
+    sysNamePlaceholder: "例如：SmartOps 智能运维平台",
+    logoLabel: "系统 Logo",
+    logoUrl: "图片链接",
+    logoUpload: "上传图片",
+    logoHelp: "支持网络链接或本地文件上传 (最大 2MB)",
+    preview: "预览",
+    browse: "选择文件",
+    remove: "清除 Logo",
     appearance: "外观设置",
     theme: "主题模式",
     light: "浅色",
     dark: "深色",
     lang: "语言设置",
     about: "关于",
-    version: "当前版本"
+    version: "当前版本",
+    save: "保存配置",
+    saved: "已保存！",
+    unsaved: "有未保存的更改"
   }
 };
 
-export const SettingsView: React.FC<SettingsViewProps> = ({ language, theme, onThemeChange }) => {
+export const SettingsView: React.FC<SettingsViewProps> = ({ language, theme, onThemeChange, appTitle, onAppTitleChange, appLogo, onAppLogoChange }) => {
   const t = translations[language];
+  const [logoMode, setLogoMode] = useState<'URL' | 'FILE'>('URL');
+  
+  // Local state for form fields to support explicit saving
+  const [localTitle, setLocalTitle] = useState(appTitle);
+  const [localLogo, setLocalLogo] = useState(appLogo);
+  const [isSaved, setIsSaved] = useState(false);
+  const [hasChanges, setHasChanges] = useState(false);
+
+  // Sync local state if props change externally (unlikely but good practice)
+  useEffect(() => {
+    setLocalTitle(appTitle);
+    setLocalLogo(appLogo);
+  }, [appTitle, appLogo]);
+
+  const handleTitleChange = (val: string) => {
+    setLocalTitle(val);
+    setHasChanges(true);
+    setIsSaved(false);
+  };
+
+  const handleLogoChange = (val: string) => {
+    setLocalLogo(val);
+    setHasChanges(true);
+    setIsSaved(false);
+  };
+
+  const handleSave = () => {
+      onAppTitleChange(localTitle);
+      onAppLogoChange(localLogo);
+      
+      setHasChanges(false);
+      setIsSaved(true);
+      
+      // Reset saved message after 3 seconds
+      setTimeout(() => setIsSaved(false), 3000);
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+        // Simple validation
+        if (file.size > 2 * 1024 * 1024) {
+            alert(language === 'zh' ? '文件过大，请上传小于 2MB 的图片' : 'File too large, please upload image smaller than 2MB');
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            handleLogoChange(reader.result as string);
+        };
+        reader.readAsDataURL(file);
+    }
+  };
 
   return (
-    <div className="max-w-4xl mx-auto py-8 px-4">
+    <div className="max-w-4xl mx-auto py-8 px-4 overflow-y-auto h-full flex flex-col relative">
       <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-8">{t.title}</h2>
       
-      <div className="space-y-6">
+      <div className="space-y-6 pb-20">
+        
+        {/* Basic Settings Section */}
+        <div className="bg-white dark:bg-[#1e1e1e] rounded-xl border border-gray-200 dark:border-[#333333] shadow-sm overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-200 dark:border-[#333333] bg-gray-50 dark:bg-[#2d2d2d]">
+             <h3 className="font-semibold text-gray-800 dark:text-white flex items-center gap-2">
+               <Type size={18} />
+               {t.general}
+             </h3>
+          </div>
+          <div className="p-6 space-y-6">
+             {/* System Name */}
+             <div className="flex flex-col gap-2">
+                <label className="text-gray-700 dark:text-gray-300 font-medium text-sm">{t.sysName}</label>
+                <div className="max-w-md">
+                    <input 
+                        type="text"
+                        value={localTitle}
+                        onChange={(e) => handleTitleChange(e.target.value)}
+                        placeholder={t.sysNamePlaceholder}
+                        className="w-full px-4 py-2 border border-gray-300 dark:border-[#404040] rounded-lg bg-white dark:bg-[#2d2d2d] focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none text-gray-900 dark:text-gray-100 transition-all"
+                    />
+                </div>
+             </div>
+
+             {/* System Logo */}
+             <div className="flex flex-col gap-2 pt-4 border-t border-gray-100 dark:border-[#333333]">
+                <label className="text-gray-700 dark:text-gray-300 font-medium text-sm">{t.logoLabel}</label>
+                
+                <div className="flex gap-6 items-start">
+                    {/* Preview Box */}
+                    <div>
+                        <div className="w-20 h-20 rounded-lg bg-[#1a1a1a] flex items-center justify-center border border-gray-300 dark:border-[#404040] overflow-hidden relative shadow-inner">
+                            {localLogo ? (
+                                <img src={localLogo} alt="Preview" className="w-12 h-12 object-contain" />
+                            ) : (
+                                <Terminal className="text-blue-500 w-8 h-8" />
+                            )}
+                        </div>
+                        <p className="text-center text-xs text-gray-400 mt-2">{t.preview}</p>
+                    </div>
+
+                    <div className="flex-1 space-y-3 max-w-md">
+                        {/* Mode Switcher */}
+                        <div className="flex gap-2">
+                            <button 
+                                onClick={() => setLogoMode('URL')}
+                                className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-colors flex items-center gap-1.5 ${
+                                    logoMode === 'URL' 
+                                    ? 'bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-400' 
+                                    : 'bg-white border-gray-200 text-gray-600 dark:bg-[#2d2d2d] dark:border-[#404040] dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-[#333333]'
+                                }`}
+                            >
+                                <LinkIcon size={14} /> URL
+                            </button>
+                            <button 
+                                onClick={() => setLogoMode('FILE')}
+                                className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-colors flex items-center gap-1.5 ${
+                                    logoMode === 'FILE' 
+                                    ? 'bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-400' 
+                                    : 'bg-white border-gray-200 text-gray-600 dark:bg-[#2d2d2d] dark:border-[#404040] dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-[#333333]'
+                                }`}
+                            >
+                                <Upload size={14} /> Upload
+                            </button>
+                            {localLogo && (
+                                <button 
+                                    onClick={() => handleLogoChange('')}
+                                    className="px-3 py-1.5 text-xs font-medium rounded-md border border-red-200 text-red-600 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:border-red-900/50 dark:text-red-400 ml-auto transition-colors"
+                                >
+                                    {t.remove}
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Inputs */}
+                        {logoMode === 'URL' ? (
+                            <input 
+                                type="text" 
+                                value={localLogo.startsWith('data:') ? '' : localLogo} 
+                                onChange={(e) => handleLogoChange(e.target.value)}
+                                placeholder="https://example.com/logo.png"
+                                className="w-full px-3 py-2 border border-gray-300 dark:border-[#404040] rounded-lg bg-white dark:bg-[#2d2d2d] text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all text-gray-800 dark:text-gray-200"
+                            />
+                        ) : (
+                            <div className="relative border border-dashed border-gray-300 dark:border-[#404040] rounded-lg p-4 bg-gray-50 dark:bg-[#2d2d2d] hover:bg-gray-100 dark:hover:bg-[#333333] transition-colors">
+                                <input 
+                                    type="file" 
+                                    accept="image/*"
+                                    onChange={handleFileUpload}
+                                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                />
+                                <div className="text-center">
+                                    <Upload className="mx-auto h-6 w-6 text-gray-400 mb-1" />
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">{t.logoUpload}</p>
+                                </div>
+                            </div>
+                        )}
+                        <p className="text-xs text-gray-400">{t.logoHelp}</p>
+                    </div>
+                </div>
+             </div>
+          </div>
+        </div>
+
         {/* Appearance Section */}
         <div className="bg-white dark:bg-[#1e1e1e] rounded-xl border border-gray-200 dark:border-[#333333] shadow-sm overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200 dark:border-[#333333] bg-gray-50 dark:bg-[#2d2d2d]">
@@ -89,6 +276,25 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ language, theme, onT
           </div>
         </div>
       </div>
+
+      {/* Floating Save Button Area */}
+      <div className="fixed bottom-6 right-8 z-50">
+          <button 
+            onClick={handleSave}
+            disabled={!hasChanges}
+            className={`flex items-center gap-2 px-6 py-3 rounded-full font-semibold shadow-lg transition-all transform hover:scale-105 active:scale-95 ${
+                isSaved 
+                ? 'bg-green-600 text-white cursor-default'
+                : hasChanges
+                    ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                    : 'bg-gray-300 dark:bg-[#333333] text-gray-500 dark:text-gray-400 cursor-not-allowed'
+            }`}
+          >
+              {isSaved ? <Check size={20} /> : <Save size={20} />}
+              {isSaved ? t.saved : t.save}
+          </button>
+      </div>
+
     </div>
   );
 };

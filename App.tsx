@@ -18,6 +18,65 @@ import { OpsConfig, ConfigType, Language, Theme, ExecutionLog } from './types';
 
 // Initial Mock Data
 const INITIAL_CONFIGS: OpsConfig[] = [
+  // --- New RMS API Config (Added via Request) ---
+  {
+    id: 'api-rms-describe-hosts',
+    name: '查询宿主机列表 (RMS DescribeHosts)',
+    description: '查询 RMS 系统中的物理机/宿主机列表信息 (Stack Malaysia 环境)。',
+    type: ConfigType.API,
+    method: 'POST',
+    content: JSON.stringify({
+      url: "http://api.rms.stack-malaysia-1.stack-malaysia.local/rms-api-server?Action=DescribeHosts",
+      headers: {
+        "Accept": "application/json",
+        "Request-Id": "req-dylkfqsabb",
+        "User-Agent": "JvirtClient",
+        "Content-Type": "application/json"
+      },
+      body: {
+        "pool_name": "",
+        "az": "",
+        "data_center": "",
+        "rack": "",
+        "machine": "",
+        "tag": "",
+        "service_type": "",
+        "host_group_id": 0,
+        "service_code": "",
+        "group_type": "",
+        "host_meta": null,
+        "host_ips": null,
+        "page": null,
+        "cluster_id": "",
+        "data_ips": null,
+        "scene": ""
+      }
+    }, null, 2),
+    tags: ['Compute', 'Resource', 'System'],
+    lastUpdated: '2025-12-03'
+  },
+
+  // --- New Environment Variables for OpenAPI ---
+  {
+    id: 'env-jdcloud-host',
+    name: 'JDCLOUD_VM_HOST',
+    description: '云主机 OpenApi 域名',
+    type: ConfigType.ENV,
+    content: 'vm.jdcloud-api.com',
+    tags: ['System', 'Environment'],
+    lastUpdated: '2025-12-02'
+  },
+  {
+    id: 'env-jdcloud-region',
+    name: 'JDCLOUD_REGION_ID',
+    description: '默认区域 ID (Region ID)',
+    type: ConfigType.ENV,
+    content: 'cn-north-1',
+    tags: ['Environment'],
+    lastUpdated: '2025-12-02'
+  },
+  
+  // --- Existing Configs ---
   {
     id: '1',
     name: 'SmartOps 平台系统信息',
@@ -76,48 +135,12 @@ const INITIAL_CONFIGS: OpsConfig[] = [
     lastUpdated: '2023-11-10'
   },
   {
-    id: 'env-1',
-    name: 'region',
-    description: 'Default Region',
-    type: ConfigType.ENV,
-    content: 'stack-shanxi-1',
-    tags: ['System', 'Environment'],
-    lastUpdated: '2023-11-01'
-  },
-  {
     id: 'env-2',
     name: 'az',
     description: 'Availability Zone',
     type: ConfigType.ENV,
-    content: 'stack-shanxi-1a',
+    content: 'cn-north-1a',
     tags: ['System', 'Environment'],
-    lastUpdated: '2023-11-01'
-  },
-  {
-    id: 'env-3',
-    name: 'ak',
-    description: 'Access Key',
-    type: ConfigType.ENV,
-    content: 'dsadasdasd',
-    tags: ['Security'],
-    lastUpdated: '2023-11-01'
-  },
-  {
-    id: 'env-4',
-    name: 'sk',
-    description: 'Secret Key',
-    type: ConfigType.ENV,
-    content: 'asfsweqweqe',
-    tags: ['Security'],
-    lastUpdated: '2023-11-01'
-  },
-  {
-    id: 'env-5',
-    name: 'apigw',
-    description: 'API Gateway Endpoint',
-    type: ConfigType.ENV,
-    content: 'apigw.stack-shanxi-1a.local',
-    tags: ['Network'],
     lastUpdated: '2023-11-01'
   }
 ];
@@ -131,7 +154,6 @@ const translations = {
     monitoring: "Monitoring",
     logs: "Logs",
     systemSettings: "Settings",
-    smartOps: "SmartOps Platform",
     monitorPlaceholder: "Monitoring Dashboard Placeholder",
     logPlaceholder: "Logs System Placeholder",
   },
@@ -141,7 +163,6 @@ const translations = {
     monitoring: "监控大盘",
     logs: "日志查询",
     systemSettings: "系统设置",
-    smartOps: "智能运维平台",
     monitorPlaceholder: "监控大盘功能开发中",
     logPlaceholder: "日志系统功能开发中",
   }
@@ -152,8 +173,10 @@ export default function App() {
   const [configs, setConfigs] = useState<OpsConfig[]>(INITIAL_CONFIGS);
   const [logs, setLogs] = useState<ExecutionLog[]>([]);
   const [language, setLanguage] = useState<Language>('zh');
-  const [theme, setTheme] = useState<Theme>('light');
+  const [theme, setTheme] = useState<Theme>('dark');
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [appTitle, setAppTitle] = useState('Optimus');
+  const [appLogo, setAppLogo] = useState<string>('https://jdcloud-portal.oss.cn-north-1.jcloudcs.com/www.jcloud.com/12968f00-b6ef-4d07-bbcf-d4aec5b0d93820220520194921.png');
 
   const t = translations[language];
 
@@ -186,7 +209,15 @@ export default function App() {
             language={language} 
         />;
       case 'SETTINGS':
-        return <SettingsView language={language} theme={theme} onThemeChange={setTheme} />;
+        return <SettingsView 
+            language={language} 
+            theme={theme} 
+            onThemeChange={setTheme} 
+            appTitle={appTitle}
+            onAppTitleChange={setAppTitle}
+            appLogo={appLogo}
+            onAppLogoChange={setAppLogo}
+        />;
       case 'MONITOR':
         return <MonitorView logs={logs} language={language} />;
       case 'LOGS':
@@ -204,12 +235,16 @@ export default function App() {
     <div className={theme}>
       <div className="flex h-screen w-full bg-gray-50 dark:bg-[#121212] text-gray-900 dark:text-gray-100 overflow-hidden font-sans">
         
-        {/* Standard Sidebar - Updated background to neutral gray-black */}
-        <aside className={`${sidebarOpen ? 'w-64' : 'w-20'} bg-[#1a1a1a] text-[#a3a3a3] transition-all duration-300 flex flex-col flex-shrink-0 shadow-xl z-20`}>
+        {/* Standard Sidebar - Updated width to auto-adapt (w-fit) instead of fixed w-64 */}
+        <aside className={`${sidebarOpen ? 'w-fit min-w-[160px]' : 'w-20'} bg-[#1a1a1a] text-[#a3a3a3] transition-all duration-300 flex flex-col flex-shrink-0 shadow-xl z-20`}>
              <div className={`h-16 flex items-center border-b border-[#333333] ${sidebarOpen ? 'px-6' : 'justify-center'}`}>
                 <div className="flex items-center gap-3 font-bold text-white text-lg overflow-hidden whitespace-nowrap">
-                    <Terminal className="text-blue-500 flex-shrink-0" />
-                    <span className={`${!sidebarOpen && 'hidden'}`}>SmartOps</span>
+                    {appLogo ? (
+                        <img src={appLogo} alt="Logo" className="w-8 h-8 rounded object-contain flex-shrink-0 bg-transparent" />
+                    ) : (
+                        <Terminal className="text-blue-500 flex-shrink-0" />
+                    )}
+                    <span className={`${!sidebarOpen && 'hidden'}`}>{appTitle}</span>
                 </div>
              </div>
              
@@ -300,13 +335,13 @@ const NavItem: React.FC<{ icon: React.ReactNode; label: string; active: boolean;
   <button 
     onClick={onClick}
     title={label}
-    className={`w-full flex items-center gap-3 px-3 py-3 rounded-md transition-all duration-200
+    className={`w-full flex items-center gap-3 px-4 py-3 rounded-md transition-all duration-200 whitespace-nowrap overflow-hidden
       ${active 
         ? 'bg-blue-600 text-white shadow-md' 
         : 'text-[#a3a3a3] hover:bg-[#333333] hover:text-white'
       } ${!expanded ? 'justify-center' : ''}`}
   >
     <div className="flex-shrink-0">{icon}</div>
-    {expanded && <span className="font-medium whitespace-nowrap overflow-hidden">{label}</span>}
+    {expanded && <span className="font-medium whitespace-nowrap">{label}</span>}
   </button>
 );

@@ -12,7 +12,7 @@ interface ConfigViewProps {
 
 const translations = {
   en: {
-    title: "Interface & Script Config Center",
+    title: "Configuration Center",
     addConfig: "Add Config",
     searchPlaceholder: "Search...",
     tab_all: "All Configs",
@@ -37,7 +37,7 @@ const translations = {
     noData: "No configurations matching current filter."
   },
   zh: {
-    title: "接口与脚本配置中心",
+    title: "配置中心",
     addConfig: "添加配置",
     searchPlaceholder: "搜索...",
     tab_all: "全部配置",

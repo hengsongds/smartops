@@ -27,6 +27,7 @@ export interface Message {
   relatedConfigId?: string; // If the bot suggests a single specific action
   suggestedConfigIds?: string[]; // If the bot returns a list of options
   isError?: boolean;
+  curlCommand?: string; // New field to store the generated cURL command
 }
 
 export interface IntentAnalysisResult {
