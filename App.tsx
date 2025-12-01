@@ -13,6 +13,7 @@ import { ChatView } from './components/ChatView';
 import { ConfigView } from './components/ConfigView';
 import { SettingsView } from './components/SettingsView';
 import { MonitorView } from './components/MonitorView';
+import { LogsView } from './components/LogsView';
 import { OpsConfig, ConfigType, Language, Theme, ExecutionLog } from './types';
 
 // Initial Mock Data
@@ -121,32 +122,6 @@ const INITIAL_CONFIGS: OpsConfig[] = [
   }
 ];
 
-// Helper to generate mock logs for the last 7 days
-const generateMockLogs = (configs: OpsConfig[]): ExecutionLog[] => {
-  const logs: ExecutionLog[] = [];
-  const now = new Date();
-  const validConfigs = configs.filter(c => c.type !== ConfigType.ENV);
-
-  for (let i = 0; i < 50; i++) {
-    const randomTime = new Date(now.getTime() - Math.floor(Math.random() * 7 * 24 * 60 * 60 * 1000));
-    const randomConfig = validConfigs[Math.floor(Math.random() * validConfigs.length)];
-    const isSuccess = Math.random() > 0.1;
-    
-    logs.push({
-      id: `log-${i}`,
-      configId: randomConfig.id,
-      configName: randomConfig.name,
-      type: randomConfig.type,
-      timestamp: randomTime.toISOString(),
-      durationMs: Math.floor(Math.random() * 500) + 20,
-      status: isSuccess ? 'SUCCESS' : 'FAILURE',
-      returnCode: isSuccess ? 200 : 500,
-      resultSummary: isSuccess ? 'Operation completed successfully' : 'Connection timeout'
-    });
-  }
-  return logs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-};
-
 type View = 'CHAT' | 'CONFIG' | 'MONITOR' | 'LOGS' | 'SETTINGS';
 
 const translations = {
@@ -179,11 +154,6 @@ export default function App() {
   const [language, setLanguage] = useState<Language>('zh');
   const [theme, setTheme] = useState<Theme>('light');
   const [sidebarOpen, setSidebarOpen] = useState(true);
-
-  // Load mock data on mount
-  useEffect(() => {
-    setLogs(generateMockLogs(INITIAL_CONFIGS));
-  }, []);
 
   const t = translations[language];
 
@@ -220,12 +190,7 @@ export default function App() {
       case 'MONITOR':
         return <MonitorView logs={logs} language={language} />;
       case 'LOGS':
-        return (
-             <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-600">
-                <FileText size={64} className="mb-4 opacity-20"/>
-                <p>{t.logPlaceholder}</p>
-            </div>
-        );
+        return <LogsView logs={logs} language={language} />;
       default:
         return <ChatView configs={configs} language={language} onLogExecute={handleAddLog} />;
     }
@@ -241,8 +206,8 @@ export default function App() {
         
         {/* Standard Sidebar - Updated background to neutral gray-black */}
         <aside className={`${sidebarOpen ? 'w-64' : 'w-20'} bg-[#1a1a1a] text-[#a3a3a3] transition-all duration-300 flex flex-col flex-shrink-0 shadow-xl z-20`}>
-             <div className="h-16 flex items-center justify-center border-b border-[#333333]">
-                <div className="flex items-center gap-2 font-bold text-white text-lg overflow-hidden whitespace-nowrap px-4">
+             <div className={`h-16 flex items-center border-b border-[#333333] ${sidebarOpen ? 'px-6' : 'justify-center'}`}>
+                <div className="flex items-center gap-3 font-bold text-white text-lg overflow-hidden whitespace-nowrap">
                     <Terminal className="text-blue-500 flex-shrink-0" />
                     <span className={`${!sidebarOpen && 'hidden'}`}>SmartOps</span>
                 </div>

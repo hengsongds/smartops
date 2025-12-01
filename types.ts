@@ -1,3 +1,4 @@
+
 export type Language = 'en' | 'zh';
 export type Theme = 'light' | 'dark';
 
@@ -45,4 +46,28 @@ export interface ExecutionLog {
   status: 'SUCCESS' | 'FAILURE';
   returnCode: number;
   resultSummary: string;
+  requestSnapshot?: string; // Snapshot of what was executed (URL/Script content)
+  responseSnapshot?: string; // Snapshot of the full output/response
+}
+
+export enum LogStorageType {
+  LOCAL = 'LOCAL',
+  S3 = 'S3',
+  ELASTICSEARCH = 'ELASTICSEARCH'
+}
+
+export interface LogSubscription {
+  id: string;
+  name: string;
+  type: LogStorageType;
+  status: 'ACTIVE' | 'INACTIVE';
+  lastSync?: string;
+  config: {
+    path?: string; // For LOCAL
+    bucket?: string; // For S3
+    region?: string; // For S3
+    accessKey?: string; // For S3
+    endpoint?: string; // For ES
+    index?: string; // For ES
+  };
 }

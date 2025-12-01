@@ -30,7 +30,8 @@ const translations = {
     success: "Execution Successful",
     runBtn: "Execute",
     error: "Error processing request.",
-    system: "System"
+    system: "System",
+    queueing: "Queued"
   },
   zh: {
     welcome: "欢迎使用智能运维助手",
@@ -43,7 +44,8 @@ const translations = {
     success: "执行成功",
     runBtn: "立即运行",
     error: "处理请求时出错。",
-    system: "系统消息"
+    system: "系统消息",
+    queueing: "已加入队列"
   }
 };
 
@@ -62,6 +64,11 @@ export const ChatView: React.FC<ChatViewProps> = ({ configs, language, onLogExec
   const t = translations[language];
   const [inputValue, setInputValue] = useState('');
   
+  // Execution Queue State
+  const [executionQueue, setExecutionQueue] = useState<string[]>([]);
+  // Use ref for locking to prevent re-renders or strict mode double-invocation issues
+  const isProcessingRef = useRef(false);
+
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 'welcome',
@@ -92,6 +99,77 @@ export const ChatView: React.FC<ChatViewProps> = ({ configs, language, onLogExec
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, isTyping]);
+
+  // Queue Processing Logic
+  useEffect(() => {
+    const processQueue = async () => {
+      // If already processing or queue is empty, do nothing
+      // We use a Ref for isProcessing to ensure immediate synchronous locking
+      if (isProcessingRef.current || executionQueue.length === 0) return;
+
+      // Lock immediately
+      isProcessingRef.current = true;
+      const configId = executionQueue[0];
+      const config = configs.find(c => c.id === configId);
+
+      try {
+        if (config) {
+            // 1. Add "Executing..." message
+            const execMsgId = Date.now().toString();
+            setMessages(prev => [...prev, {
+            id: execMsgId,
+            role: 'bot',
+            content: `${t.executing}: ${config.name}...`,
+            timestamp: getFormattedTimestamp()
+            }]);
+
+            // 2. Simulate Delay (Network request)
+            await new Promise(resolve => setTimeout(resolve, 1500));
+
+            // 3. Generate Response
+            const { output, status, returnCode, summary, duration } = generateMockResponse(config);
+
+            // 4. Log Execution
+            let requestSnapshot = "";
+            if (config.type === ConfigType.API) {
+                requestSnapshot = `Method: ${config.method || 'GET'}\nURL: ${config.content}`;
+            } else {
+                requestSnapshot = `Script Content:\n${config.content}`;
+            }
+
+            onLogExecute({
+            id: Date.now().toString(),
+            configId: config.id,
+            configName: config.name,
+            type: config.type,
+            timestamp: new Date().toISOString(),
+            durationMs: duration,
+            status: status,
+            returnCode: returnCode,
+            resultSummary: summary,
+            requestSnapshot: requestSnapshot,
+            responseSnapshot: output
+            });
+
+            // 5. Add "Success" message
+            setMessages(prev => [...prev, {
+                id: (Date.now() + 100).toString(),
+                role: 'bot',
+                content: `✅ **${t.success}**: ${config.name}\n\n${output}`,
+                timestamp: getFormattedTimestamp()
+            }]);
+        }
+      } catch (error) {
+          console.error("Error executing command", error);
+      } finally {
+        // 6. Remove processed item from queue and release lock
+        setExecutionQueue(prev => prev.slice(1));
+        isProcessingRef.current = false;
+      }
+    };
+
+    processQueue();
+  }, [executionQueue, configs, onLogExecute, t]);
 
   const handleSendMessage = async (text: string = inputValue) => {
     if (!text.trim()) return;
@@ -204,40 +282,8 @@ export const ChatView: React.FC<ChatViewProps> = ({ configs, language, onLogExec
   };
 
   const handleExecute = (configId: string) => {
-    const config = configs.find(c => c.id === configId);
-    if (!config) return;
-
-    const execMsgId = Date.now().toString();
-    setMessages(prev => [...prev, {
-      id: execMsgId,
-      role: 'bot',
-      content: `${t.executing}: ${config.name}...`,
-      timestamp: getFormattedTimestamp()
-    }]);
-
-    setTimeout(() => {
-        const { output, status, returnCode, summary, duration } = generateMockResponse(config);
-        
-        // Log to global state
-        onLogExecute({
-          id: Date.now().toString(),
-          configId: config.id,
-          configName: config.name,
-          type: config.type,
-          timestamp: new Date().toISOString(),
-          durationMs: duration,
-          status: status,
-          returnCode: returnCode,
-          resultSummary: summary
-        });
-
-        setMessages(prev => [...prev, {
-            id: (Date.now() + 100).toString(),
-            role: 'bot',
-            content: `✅ **${t.success}**: ${config.name}\n\n${output}`,
-            timestamp: getFormattedTimestamp()
-        }]);
-    }, 1500);
+    // Just add to queue, useEffect handles the serial execution
+    setExecutionQueue(prev => [...prev, configId]);
   };
 
   const renderMessageContent = (msg: Message) => {
@@ -252,29 +298,37 @@ export const ChatView: React.FC<ChatViewProps> = ({ configs, language, onLogExec
                 <div className="flex flex-col gap-2">
                     <p className="whitespace-pre-wrap">{msg.content}</p>
                     <div className="grid grid-cols-1 gap-2 mt-2">
-                        {suggestedConfigs.map((config) => (
-                            <div key={config.id} className="bg-white dark:bg-[#2d2d2d] p-3 rounded-lg border border-gray-200 dark:border-[#404040] shadow-sm flex justify-between items-center hover:shadow-md transition-shadow group">
-                                <div className="overflow-hidden mr-3">
-                                    <div className="flex items-center gap-2 mb-0.5">
-                                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
-                                            config.type === 'API' 
-                                            ? 'bg-blue-50 text-blue-600 border-blue-100 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800' 
-                                            : 'bg-purple-50 text-purple-600 border-purple-100 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800'
-                                        }`}>
-                                            {config.type}
-                                        </span>
-                                        <div className="font-medium text-gray-900 dark:text-gray-100 truncate">{config.name}</div>
+                        {suggestedConfigs.map((config) => {
+                            const isInQueue = executionQueue.includes(config.id);
+                            return (
+                                <div key={config.id} className="bg-white dark:bg-[#2d2d2d] p-3 rounded-lg border border-gray-200 dark:border-[#404040] shadow-sm flex justify-between items-center hover:shadow-md transition-shadow group">
+                                    <div className="overflow-hidden mr-3">
+                                        <div className="flex items-center gap-2 mb-0.5">
+                                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
+                                                config.type === 'API' 
+                                                ? 'bg-blue-50 text-blue-600 border-blue-100 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800' 
+                                                : 'bg-purple-50 text-purple-600 border-purple-100 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800'
+                                            }`}>
+                                                {config.type}
+                                            </span>
+                                            <div className="font-medium text-gray-900 dark:text-gray-100 truncate">{config.name}</div>
+                                        </div>
+                                        <div className="text-xs text-gray-500 truncate">{config.description}</div>
                                     </div>
-                                    <div className="text-xs text-gray-500 truncate">{config.description}</div>
+                                    <button 
+                                        onClick={() => handleExecute(config.id)}
+                                        disabled={isInQueue}
+                                        className={`flex-shrink-0 p-2 rounded-full transition-colors ${
+                                            isInQueue 
+                                            ? 'bg-blue-100 text-blue-400 cursor-wait' 
+                                            : 'bg-gray-100 text-gray-600 dark:bg-[#404040] dark:text-gray-300 hover:bg-blue-600 hover:text-white dark:hover:bg-blue-600 dark:hover:text-white'
+                                        }`}
+                                    >
+                                        <Play size={16} fill="currentColor" className="ml-0.5" />
+                                    </button>
                                 </div>
-                                <button 
-                                    onClick={() => handleExecute(config.id)}
-                                    className="flex-shrink-0 bg-gray-100 text-gray-600 dark:bg-[#404040] dark:text-gray-300 p-2 rounded-full hover:bg-blue-600 hover:text-white dark:hover:bg-blue-600 dark:hover:text-white transition-colors"
-                                >
-                                    <Play size={16} fill="currentColor" className="ml-0.5" />
-                                </button>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 </div>
             );
@@ -330,9 +384,23 @@ export const ChatView: React.FC<ChatViewProps> = ({ configs, language, onLogExec
             </div>
             <button 
               onClick={() => handleExecute(relatedConfig.id)}
-              className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center gap-2 transition-colors rounded-md font-medium text-sm shadow-sm"
+              disabled={executionQueue.includes(relatedConfig.id)}
+              className={`w-full py-2 flex items-center justify-center gap-2 transition-colors rounded-md font-medium text-sm shadow-sm ${
+                  executionQueue.includes(relatedConfig.id)
+                  ? 'bg-blue-400 text-white cursor-wait opacity-80'
+                  : 'bg-blue-600 hover:bg-blue-700 text-white'
+              }`}
             >
-              <Play size={16} /> {t.runBtn}
+              {executionQueue.includes(relatedConfig.id) ? (
+                 <>
+                   <span className="w-2 h-2 bg-white rounded-full animate-pulse"></span>
+                   {t.queueing}...
+                 </>
+              ) : (
+                 <>
+                    <Play size={16} /> {t.runBtn}
+                 </>
+              )}
             </button>
           </div>
         )}

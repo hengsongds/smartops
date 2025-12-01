@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type, Schema } from "@google/genai";
-import { OpsConfig, IntentAnalysisResult, Language } from "../types";
+import { OpsConfig, IntentAnalysisResult, Language, ConfigType } from "../types";
 
 const apiKey = process.env.API_KEY || '';
 const ai = new GoogleGenAI({ apiKey });
@@ -97,13 +97,17 @@ export const analyzeUserIntent = async (
   availableConfigs: OpsConfig[],
   language: Language = 'en'
 ): Promise<IntentAnalysisResult> => {
+  // Filter availableConfigs to only include executable ones (API, SCRIPT)
+  // We exclude ENV variables as they are not executable commands
+  const executableConfigs = availableConfigs.filter(c => c.type !== ConfigType.ENV);
+
   // If no API key is set, immediately fail over to local fallback
   if (!apiKey) {
-    return performLocalFallbackAnalysis(userMessage, availableConfigs, language);
+    return performLocalFallbackAnalysis(userMessage, executableConfigs, language);
   }
 
   // Create a simplified version of configs to save tokens
-  const toolsDescription = availableConfigs.map(c => ({
+  const toolsDescription = executableConfigs.map(c => ({
     id: c.id,
     name: c.name,
     description: c.description,
@@ -117,7 +121,7 @@ export const analyzeUserIntent = async (
 
   const systemInstruction = `
     You are an intelligent operations assistant (SmartOps).
-    You have access to a registry of "Available Tools" (APIs, Scripts, and Configs) provided in the JSON below.
+    You have access to a registry of "Available Tools" (APIs and Scripts) provided in the JSON below.
 
     Your Goal: Analyze the user's natural language input to understand their intent. You must determine if they want to execute a specific tool, query for information, or if their request is ambiguous and requires clarification.
 
@@ -189,6 +193,6 @@ export const analyzeUserIntent = async (
   } catch (error: any) {
     console.warn("Gemini Analysis Failed (likely 403 or network). Switching to fallback.", error);
     // Return local fallback on ANY error (including 403 Region not supported)
-    return performLocalFallbackAnalysis(userMessage, availableConfigs, language);
+    return performLocalFallbackAnalysis(userMessage, executableConfigs, language);
   }
 };
