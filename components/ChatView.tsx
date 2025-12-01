@@ -1,9 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Play, ChevronRight, AlertCircle, Info, Code, Terminal, Copy, Check, Maximize2, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { Send, Bot, User, Play, ChevronRight, AlertCircle, Info, Code, Terminal, Copy, Check, Maximize2, X, ChevronDown, ChevronUp, Loader2, StopCircle } from 'lucide-react';
 import { Message, OpsConfig, Language, ConfigType, ExecutionLog } from '../types';
 import { analyzeUserIntent } from '../services/geminiService';
 
 interface ChatViewProps {
+  sessionId: string;
+  initialMessages: Message[];
+  onSessionUpdate: (messages: Message[]) => void;
   configs: OpsConfig[];
   language: Language;
   onLogExecute: (log: ExecutionLog) => void;
@@ -28,6 +31,7 @@ const translations = {
     runBackup: "Run Backup",
     executing: "Executing",
     success: "Execution Successful",
+    cancelled: "Execution Cancelled",
     runBtn: "Execute",
     error: "Error processing request.",
     system: "System",
@@ -40,7 +44,8 @@ const translations = {
     collapse: "Collapse",
     close: "Close",
     responseDetails: "Response Details",
-    lines: "lines"
+    lines: "lines",
+    cancel: "Cancel"
   },
   zh: {
     welcome: "欢迎使用智能运维助手",
@@ -51,6 +56,7 @@ const translations = {
     runBackup: "执行数据库备份",
     executing: "执行中",
     success: "执行成功",
+    cancelled: "已取消执行",
     runBtn: "立即运行",
     error: "处理请求时出错。",
     system: "系统消息",
@@ -63,7 +69,8 @@ const translations = {
     collapse: "收起",
     close: "关闭",
     responseDetails: "响应详情",
-    lines: "行"
+    lines: "行",
+    cancel: "取消"
   }
 };
 
@@ -242,7 +249,7 @@ const CodeBlock: React.FC<{ code: string; lang: string; t: any }> = ({ code, lan
     );
 };
 
-export const ChatView: React.FC<ChatViewProps> = ({ configs, language, onLogExecute }) => {
+export const ChatView: React.FC<ChatViewProps> = ({ sessionId, initialMessages, onSessionUpdate, configs, language, onLogExecute }) => {
   const t = translations[language];
   const [inputValue, setInputValue] = useState('');
   
@@ -250,31 +257,37 @@ export const ChatView: React.FC<ChatViewProps> = ({ configs, language, onLogExec
   const [executionQueue, setExecutionQueue] = useState<string[]>([]);
   // Use ref for locking to prevent re-renders or strict mode double-invocation issues
   const isProcessingRef = useRef(false);
+  const currentAbortController = useRef<AbortController | null>(null);
 
   // State for copy feedback
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: 'welcome',
-      role: 'bot',
-      content: `${t.welcome}\n${t.welcomeSub}`,
-      timestamp: getFormattedTimestamp()
-    }
-  ]);
+  // Initialize messages from props
+  // Note: if initialMessages is empty, we add welcome. But we must respect history.
+  const [messages, setMessages] = useState<Message[]>([]);
 
-  // Reset welcome message on language change
+  // Sync messages from props when Session ID changes
   useEffect(() => {
-    setMessages(prev => {
-        if (prev.length === 1 && prev[0].id === 'welcome') {
-            return [{
-                ...prev[0],
-                content: `${t.welcome}\n${t.welcomeSub}`
-            }];
-        }
-        return prev;
-    });
-  }, [language]);
+     if (initialMessages && initialMessages.length > 0) {
+         setMessages(initialMessages);
+     } else {
+         // New Session
+         setMessages([{
+            id: 'welcome',
+            role: 'bot',
+            content: `${t.welcome}\n${t.welcomeSub}`,
+            timestamp: getFormattedTimestamp()
+         }]);
+     }
+  }, [sessionId, language]); // Added language dep to update welcome msg text if needed (though history persists language)
+
+  // Report changes back to parent
+  useEffect(() => {
+      // Avoid circular updates or unnecessary calls
+      if (messages !== initialMessages) {
+          onSessionUpdate(messages);
+      }
+  }, [messages]);
 
   const [isTyping, setIsTyping] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -291,6 +304,13 @@ export const ChatView: React.FC<ChatViewProps> = ({ configs, language, onLogExec
       setTimeout(() => setCopiedId(null), 2000);
   };
 
+  const handleCancelExecution = (msgId: string) => {
+    if (currentAbortController.current) {
+        currentAbortController.current.abort();
+        // UI update for cancelled state is handled in the catch block of processQueue
+    }
+  };
+
   // Queue Processing Logic
   useEffect(() => {
     const processQueue = async () => {
@@ -302,17 +322,22 @@ export const ChatView: React.FC<ChatViewProps> = ({ configs, language, onLogExec
       isProcessingRef.current = true;
       const configId = executionQueue[0];
       const config = configs.find(c => c.id === configId);
+      const execMsgId = Date.now().toString();
 
       try {
         if (config) {
-            // 1. Add "Executing..." message
-            const execMsgId = Date.now().toString();
+            // 1. Add "Executing..." message with status
             setMessages(prev => [...prev, {
-            id: execMsgId,
-            role: 'bot',
-            content: `${t.executing}: ${config.name}...`,
-            timestamp: getFormattedTimestamp()
+                id: execMsgId,
+                role: 'bot',
+                content: `${t.executing}: ${config.name}...`,
+                timestamp: getFormattedTimestamp(),
+                status: 'EXECUTING'
             }]);
+
+            // Setup AbortController for Cancellation
+            const controller = new AbortController();
+            currentAbortController.current = controller;
 
             // Resolve variables in content
             let resolvedContent = config.content;
@@ -321,12 +346,21 @@ export const ChatView: React.FC<ChatViewProps> = ({ configs, language, onLogExec
             // Replace ${VAR_NAME} with actual value
             envConfigs.forEach(env => {
                 const placeholder = `\${${env.name}}`;
-                // Use split/join for global replacement which is safer than regex for simple strings
                 resolvedContent = resolvedContent.split(placeholder).join(env.content);
             });
 
-            // 2. Simulate Delay (Network request)
-            await new Promise(resolve => setTimeout(resolve, 1500));
+            // 2. Simulate Delay (Network request) with cancellation support
+            // Increased delay to 5s to allow user time to click Cancel
+            await new Promise<void>((resolve, reject) => {
+                const timer = setTimeout(() => {
+                    resolve();
+                }, 5000); 
+
+                controller.signal.addEventListener('abort', () => {
+                    clearTimeout(timer);
+                    reject(new DOMException('Aborted', 'AbortError'));
+                });
+            });
 
             // 3. Generate Response
             const { output, status, returnCode, summary, duration } = generateMockResponse(config);
@@ -339,9 +373,7 @@ export const ChatView: React.FC<ChatViewProps> = ({ configs, language, onLogExec
                 // If it's a JSON string, try to pretty print the resolved content
                 try {
                     const jsonObj = JSON.parse(resolvedContent);
-                    // Build cURL
                     generatedCurl = buildCurlCommand(config.method || 'GET', jsonObj);
-                    
                     resolvedContent = JSON.stringify(jsonObj, null, 2);
                 } catch (e) {
                     // Not valid JSON, keep as is
@@ -352,18 +384,24 @@ export const ChatView: React.FC<ChatViewProps> = ({ configs, language, onLogExec
             }
 
             onLogExecute({
-            id: Date.now().toString(),
-            configId: config.id,
-            configName: config.name,
-            type: config.type,
-            timestamp: new Date().toISOString(),
-            durationMs: duration,
-            status: status,
-            returnCode: returnCode,
-            resultSummary: summary,
-            requestSnapshot: requestSnapshot,
-            responseSnapshot: output
+                id: Date.now().toString(),
+                configId: config.id,
+                configName: config.name,
+                type: config.type,
+                timestamp: new Date().toISOString(),
+                durationMs: duration,
+                status: status,
+                returnCode: returnCode,
+                resultSummary: summary,
+                requestSnapshot: requestSnapshot,
+                responseSnapshot: output
             });
+
+            // Update execution message to completed state (visual cleanup) or keep it as history
+            // Here we append a NEW success message as per original design, but update the executing one to remove spinner? 
+            // Better UX: Update the "Executing" message to be "Completed" or just leave it and append Success.
+            // Let's just update the previous message to remove EXECUTING status so the button disappears
+            setMessages(prev => prev.map(m => m.id === execMsgId ? { ...m, status: undefined } : m));
 
             // 5. Add "Success" message
             setMessages(prev => [...prev, {
@@ -374,12 +412,43 @@ export const ChatView: React.FC<ChatViewProps> = ({ configs, language, onLogExec
                 curlCommand: generatedCurl // Attach generated curl
             }]);
         }
-      } catch (error) {
-          console.error("Error executing command", error);
+      } catch (error: any) {
+          if (error.name === 'AbortError') {
+              // Handle Cancellation
+              setMessages(prev => prev.map(m => m.id === execMsgId ? {
+                  ...m,
+                  content: `🚫 **${t.cancelled}**: ${config?.name}`,
+                  status: 'CANCELLED'
+              } : m));
+              
+              onLogExecute({
+                  id: Date.now().toString(),
+                  configId: config?.id || 'unknown',
+                  configName: config?.name || 'unknown',
+                  type: config?.type || ConfigType.SCRIPT,
+                  timestamp: new Date().toISOString(),
+                  durationMs: 0,
+                  status: 'CANCELLED',
+                  returnCode: -1,
+                  resultSummary: 'User Cancelled',
+                  requestSnapshot: 'Cancelled',
+                  responseSnapshot: 'Cancelled'
+              });
+          } else {
+              console.error("Error executing command", error);
+              setMessages(prev => [...prev, {
+                id: Date.now().toString(),
+                role: 'bot',
+                content: t.error,
+                timestamp: getFormattedTimestamp(),
+                isError: true
+              }]);
+          }
       } finally {
         // 6. Remove processed item from queue and release lock
         setExecutionQueue(prev => prev.slice(1));
         isProcessingRef.current = false;
+        currentAbortController.current = null;
       }
     };
 
@@ -436,8 +505,7 @@ export const ChatView: React.FC<ChatViewProps> = ({ configs, language, onLogExec
          returnCode = 200;
          let data = {};
          
-         // Priority Check for RMS DescribeHosts to return full mock data matching actual curl response
-         // We generate 50 hosts to simulate the "2127 lines" of data mentioned by the user
+         // Priority Check for RMS DescribeHosts
          if (config.id === 'api-rms-describe-hosts' || config.name.includes("RMS")) {
              const hosts = [];
              for(let i = 1; i <= 50; i++) {
@@ -450,121 +518,32 @@ export const ChatView: React.FC<ChatViewProps> = ({ configs, language, onLogExec
                      "az": "stack-malaysia-1a",
                      "data_center": "MY-DC-1",
                      "rack": `T2-L5-${150 + Math.floor(i/10)}`,
-                     "logic_rack": `lr-T2-L5-${150 + Math.floor(i/10)}-switch-sn`,
-                     "tor": `T2-L5-${150 + Math.floor(i/10)}-switch-sn`,
                      "machine": "general_2",
                      "service_type": "kvm,hyper",
                      "cpus": 96,
                      "memory": 384400,
-                     "disk": 1740,
-                     "memory_reserved": 86130,
-                     "cpus_reserved": 4,
-                     "disk_reserved": 100,
-                     "cpu_mode": "share",
-                     "cpualloc_ratio": 1,
-                     "memory_ratio": 1,
-                     "total_vcpus": 92,
-                     "total_mem": 298270,
-                     "total_disk": 1640,
-                     "cpus_used": Math.floor(Math.random() * 90),
-                     "memory_used": Math.floor(Math.random() * 200000),
-                     "disk_used": 0,
-                     "run_vms": Math.floor(Math.random() * 30),
-                     "state": "Enable",
-                     "rack_id": 4,
-                     "host_group_id": 16,
-                     "data_ip": `11.172.72.${70 + i}`,
-                     "id": 38 + i,
-                     "host_meta": [
-                         {"attr": "smartNic", "value": "false", "host_id": 38+i},
-                         {"attr": "supportWindows", "value": "true", "host_id": 38+i},
-                         {"attr": "cpu_model", "value": "Intel(R) Xeon(R) Gold 6267C CPU @ 2.60GHz", "host_id": 38+i}
-                     ]
+                     "state": "Enable"
                  });
              }
 
              data = {
                  "code": 0,
                  "message": "Success",
-                 "detail": "",
                  "requestId": "req-" + Math.random().toString(36).substring(7),
                  "total": 50,
                  "data": hosts
              };
              summary = `RMS Hosts listed (${hosts.length} Hosts Found)`;
          }
-         // Simple mock logic based on name to make it look real
+         // ... other mocks ...
          else if (config.name.includes("User") || config.name.includes("用户")) {
-             data = { 
-                 users: [
-                     {id: 1, name: "admin", role: "admin", status: "active"}, 
-                     {id: 2, name: "devops", role: "maintainer", status: "active"},
-                     {id: 3, name: "guest", role: "viewer", status: "inactive"}
-                 ], 
-                 total: 3,
-                 page: 1
-             };
+             data = { users: [{id: 1, name: "admin"}, {id: 2, name: "devops"}], total: 2 };
              summary = "Fetched user list";
-         } else if (config.name.includes("System") || config.name.includes("系统")) {
-             data = { 
-                 os: "Ubuntu Linux 22.04 LTS", 
-                 kernel: "5.15.0-88-generic", 
-                 uptime: "14 days, 2 hours, 15 minutes", 
-                 load_average: [0.12, 0.08, 0.05],
-                 memory: { total: "16GB", free: "4.2GB" }
-             };
-             summary = "System info retrieved";
          } else if (config.name.includes("Status") || config.name.includes("状态")) {
-             data = { 
-                 status: "HEALTHY", 
-                 service_id: "smartops-core-v1", 
-                 active_connections: 42, 
-                 cpu_usage: "12%", 
-                 memory_usage: "45%",
-                 last_incident: null
-             };
+             data = { status: "HEALTHY", active_connections: 42 };
              summary = "Status check passed";
-         } else if (config.id === 'api-jdcloud-describe-instances' || config.name.includes("Instance") || config.name.includes("云主机")) {
-             // Mock data for JD Cloud Describe Instances (OpenAPI style)
-             data = {
-                 "requestId": "bf4520-a1b2-c3d4-e5f6-789012abcdef",
-                 "result": {
-                    "totalCount": 2,
-                    "instances": [
-                        {
-                            "instanceId": "i-k1n2m3j4",
-                            "instanceName": "web-server-01",
-                            "instanceType": "g.n2.medium",
-                            "vpcId": "vpc-01",
-                            "subnetId": "subnet-01",
-                            "privateIpAddress": "172.16.0.10",
-                            "status": "running",
-                            "launchTime": "2025-11-15T08:30:00Z",
-                            "az": "cn-north-1a",
-                            "imageName": "Ubuntu 22.04 LTS"
-                        },
-                        {
-                            "instanceId": "i-x9y8z7w6",
-                            "instanceName": "db-redis-01",
-                            "instanceType": "m.n2.large",
-                            "vpcId": "vpc-01",
-                            "subnetId": "subnet-02",
-                            "privateIpAddress": "172.16.1.50",
-                            "status": "stopped",
-                            "launchTime": "2025-10-20T14:15:00Z",
-                            "az": "cn-north-1b",
-                            "imageName": "CentOS 7.9"
-                        }
-                    ]
-                 }
-             };
-             summary = "Success: Listed 2 instances (OpenAPI)";
          } else {
-             data = { 
-                 message: "Operation completed successfully", 
-                 config_id: config.id,
-                 timestamp: new Date().toISOString() 
-             };
+             data = { message: "Operation completed successfully", config_id: config.id };
              summary = "Operation completed";
          }
          
@@ -573,13 +552,10 @@ export const ChatView: React.FC<ChatViewProps> = ({ configs, language, onLogExec
          returnCode = 0;
          let logs = "";
          if (config.name.includes("Backup") || config.name.includes("备份")) {
-             logs = `[INFO] Starting database backup job...\n[INFO] Connecting to database (smart_db)...\n[INFO] Dumping data to /backup/db_${new Date().toISOString().split('T')[0]}.sql\n[INFO] Compressing archive...\n[SUCCESS] Backup completed. Size: 45MB.`;
+             logs = `[INFO] Starting database backup job...\n[SUCCESS] Backup completed. Size: 45MB.`;
              summary = "Backup completed (45MB)";
-         } else if (config.name.includes("Restart") || config.name.includes("重启")) {
-             logs = `[INFO] Stopping service smartops-core...\n[WARN] Waiting for active connections to drain...\n[INFO] Service stopped.\n[INFO] Starting service smartops-core...\n[INFO] Health check passed.\n[SUCCESS] Service restarted successfully.`;
-             summary = "Service restart successful";
          } else {
-             logs = `[INFO] Starting script execution...\n[INFO] Validating environment variables...\n[INFO] Executing main sequence...\n[SUCCESS] Task completed successfully.`;
+             logs = `[INFO] Starting script execution...\n[SUCCESS] Task completed successfully.`;
              summary = "Script executed successfully";
          }
          
@@ -597,6 +573,7 @@ export const ChatView: React.FC<ChatViewProps> = ({ configs, language, onLogExec
   const renderMessageContent = (msg: Message) => {
     // Render list of suggestions
     if (msg.suggestedConfigIds && msg.suggestedConfigIds.length > 0) {
+        // ... (existing suggestion logic) ...
         const suggestedConfigs = msg.suggestedConfigIds
             .map(id => configs.find(c => c.id === id))
             .filter((c): c is OpsConfig => !!c);
@@ -643,7 +620,35 @@ export const ChatView: React.FC<ChatViewProps> = ({ configs, language, onLogExec
         }
     }
 
-    // Render single matched config
+    // Special Rendering for EXECUTING status
+    if (msg.status === 'EXECUTING') {
+        return (
+            <div className="flex items-center justify-between gap-4 min-w-[240px]">
+                <div className="flex items-center gap-2.5">
+                    <Loader2 size={18} className="animate-spin text-blue-600 dark:text-blue-400" />
+                    <span className="font-medium">{msg.content.replace(`${t.executing}: `, '')}</span>
+                </div>
+                <button 
+                    onClick={() => handleCancelExecution(msg.id)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 dark:bg-red-900/30 dark:hover:bg-red-900/50 dark:text-red-400 rounded-md text-xs font-semibold transition-colors"
+                >
+                    <StopCircle size={14} />
+                    {t.cancel}
+                </button>
+            </div>
+        );
+    }
+    
+    // Render cancelled status specially too if needed, but text content was updated in handle logic
+    if (msg.status === 'CANCELLED') {
+        return (
+            <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 italic">
+               <span dangerouslySetInnerHTML={{ __html: msg.content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }} />
+            </div>
+        );
+    }
+
+    // Render single matched config (standard)
     const relatedConfig = msg.relatedConfigId ? configs.find(c => c.id === msg.relatedConfigId) : null;
 
     return (

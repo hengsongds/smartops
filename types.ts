@@ -28,6 +28,14 @@ export interface Message {
   suggestedConfigIds?: string[]; // If the bot returns a list of options
   isError?: boolean;
   curlCommand?: string; // New field to store the generated cURL command
+  status?: 'EXECUTING' | 'SUCCESS' | 'CANCELLED' | 'FAILURE'; // Execution status
+}
+
+export interface ChatSession {
+  id: string;
+  title: string;
+  messages: Message[];
+  lastUpdated: number; // Timestamp for sorting
 }
 
 export interface IntentAnalysisResult {
@@ -44,7 +52,7 @@ export interface ExecutionLog {
   type: ConfigType;
   timestamp: string; // ISO String
   durationMs: number;
-  status: 'SUCCESS' | 'FAILURE';
+  status: 'SUCCESS' | 'FAILURE' | 'CANCELLED';
   returnCode: number;
   resultSummary: string;
   requestSnapshot?: string; // Snapshot of what was executed (URL/Script content)

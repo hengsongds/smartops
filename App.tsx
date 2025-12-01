@@ -7,14 +7,18 @@ import {
   Menu,
   Globe,
   LayoutDashboard,
-  Terminal
+  Terminal,
+  Plus,
+  MessageCircle,
+  ChevronDown,
+  ChevronRight
 } from 'lucide-react';
 import { ChatView } from './components/ChatView';
 import { ConfigView } from './components/ConfigView';
 import { SettingsView } from './components/SettingsView';
 import { MonitorView } from './components/MonitorView';
 import { LogsView } from './components/LogsView';
-import { OpsConfig, ConfigType, Language, Theme, ExecutionLog } from './types';
+import { OpsConfig, ConfigType, Language, Theme, ExecutionLog, ChatSession, Message } from './types';
 
 // Initial Mock Data
 const INITIAL_CONFIGS: OpsConfig[] = [
@@ -156,6 +160,8 @@ const translations = {
     systemSettings: "Settings",
     monitorPlaceholder: "Monitoring Dashboard Placeholder",
     logPlaceholder: "Logs System Placeholder",
+    newChat: "New Chat",
+    historyLimit: "Only recent 5 sessions kept"
   },
   zh: {
     smartChat: "智能对话",
@@ -165,6 +171,8 @@ const translations = {
     systemSettings: "系统设置",
     monitorPlaceholder: "监控大盘功能开发中",
     logPlaceholder: "日志系统功能开发中",
+    newChat: "新建会话",
+    historyLimit: "仅支持最近5份会话记录"
   }
 };
 
@@ -177,8 +185,26 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [appTitle, setAppTitle] = useState('Optimus');
   const [appLogo, setAppLogo] = useState<string>('https://jdcloud-portal.oss.cn-north-1.jcloudcs.com/www.jcloud.com/12968f00-b6ef-4d07-bbcf-d4aec5b0d93820220520194921.png');
+  
+  // New State for customizable Chat Module Name
+  const [chatTitle, setChatTitle] = useState('说些什么');
+
+  // Session State
+  const [sessions, setSessions] = useState<ChatSession[]>([
+    {
+      id: 'default',
+      title: 'New Session',
+      messages: [],
+      lastUpdated: Date.now()
+    }
+  ]);
+  const [activeSessionId, setActiveSessionId] = useState<string>('default');
+  const [chatHistoryOpen, setChatHistoryOpen] = useState(true);
 
   const t = translations[language];
+
+  // Helper to get active session
+  const activeSession = sessions.find(s => s.id === activeSessionId) || sessions[0];
 
   const handleAddConfig = (newConfig: OpsConfig) => {
     setConfigs([...configs, newConfig]);
@@ -196,10 +222,53 @@ export default function App() {
     setLogs(prev => [log, ...prev]);
   };
 
+  // Session Management
+  const handleNewSession = () => {
+    const newSession: ChatSession = {
+      id: Date.now().toString(),
+      title: language === 'zh' ? '新会话' : 'New Session',
+      messages: [],
+      lastUpdated: Date.now()
+    };
+    
+    setSessions(prev => {
+      // Keep only top 4 + new one = 5
+      const sorted = [...prev].sort((a, b) => b.lastUpdated - a.lastUpdated);
+      const kept = sorted.slice(0, 4); 
+      return [newSession, ...kept];
+    });
+    setActiveSessionId(newSession.id);
+  };
+
+  const handleSessionUpdate = (messages: Message[]) => {
+    setSessions(prev => prev.map(s => {
+      if (s.id === activeSessionId) {
+        // Derive title from first user message if title is default
+        let title = s.title;
+        if ((s.title === 'New Session' || s.title === '新会话') && messages.length > 1) {
+             const firstUserMsg = messages.find(m => m.role === 'user');
+             if (firstUserMsg) {
+                 title = firstUserMsg.content.slice(0, 15) + (firstUserMsg.content.length > 15 ? '...' : '');
+             }
+        }
+        return { ...s, messages, title, lastUpdated: Date.now() };
+      }
+      return s;
+    }));
+  };
+
   const renderContent = () => {
     switch (currentView) {
       case 'CHAT':
-        return <ChatView configs={configs} language={language} onLogExecute={handleAddLog} />;
+        return <ChatView 
+                  key={activeSessionId} // Force re-render on session switch
+                  sessionId={activeSessionId}
+                  initialMessages={activeSession.messages}
+                  onSessionUpdate={handleSessionUpdate}
+                  configs={configs} 
+                  language={language} 
+                  onLogExecute={handleAddLog} 
+               />;
       case 'CONFIG':
         return <ConfigView 
             configs={configs} 
@@ -217,13 +286,23 @@ export default function App() {
             onAppTitleChange={setAppTitle}
             appLogo={appLogo}
             onAppLogoChange={setAppLogo}
+            chatTitle={chatTitle}
+            onChatTitleChange={setChatTitle}
         />;
       case 'MONITOR':
         return <MonitorView logs={logs} language={language} />;
       case 'LOGS':
         return <LogsView logs={logs} language={language} />;
       default:
-        return <ChatView configs={configs} language={language} onLogExecute={handleAddLog} />;
+        return <ChatView 
+                  key={activeSessionId}
+                  sessionId={activeSessionId}
+                  initialMessages={activeSession.messages}
+                  onSessionUpdate={handleSessionUpdate}
+                  configs={configs} 
+                  language={language} 
+                  onLogExecute={handleAddLog} 
+               />;
     }
   };
 
@@ -236,7 +315,7 @@ export default function App() {
       <div className="flex h-screen w-full bg-gray-50 dark:bg-[#121212] text-gray-900 dark:text-gray-100 overflow-hidden font-sans">
         
         {/* Standard Sidebar - Updated width to auto-adapt (w-fit) instead of fixed w-64 */}
-        <aside className={`${sidebarOpen ? 'w-fit min-w-[160px]' : 'w-20'} bg-[#1a1a1a] text-[#a3a3a3] transition-all duration-300 flex flex-col flex-shrink-0 shadow-xl z-20`}>
+        <aside className={`${sidebarOpen ? 'w-fit min-w-[220px]' : 'w-20'} bg-[#1a1a1a] text-[#a3a3a3] transition-all duration-300 flex flex-col flex-shrink-0 shadow-xl z-20`}>
              <div className={`h-16 flex items-center border-b border-[#333333] ${sidebarOpen ? 'px-6' : 'justify-center'}`}>
                 <div className="flex items-center gap-3 font-bold text-white text-lg overflow-hidden whitespace-nowrap">
                     {appLogo ? (
@@ -248,14 +327,60 @@ export default function App() {
                 </div>
              </div>
              
-             <nav className="flex-1 py-6 px-3 space-y-1">
-                 <NavItem 
-                    icon={<MessageSquare size={20} />} 
-                    label={t.smartChat} 
-                    active={currentView === 'CHAT'} 
-                    onClick={() => setCurrentView('CHAT')} 
-                    expanded={sidebarOpen}
-                 />
+             <nav className="flex-1 py-6 px-3 space-y-1 overflow-y-auto custom-scrollbar">
+                 <div className="mb-2">
+                    <NavItem 
+                        icon={<MessageSquare size={20} />} 
+                        label={chatTitle} 
+                        active={currentView === 'CHAT'} 
+                        onClick={() => {
+                            if (currentView === 'CHAT') {
+                                setChatHistoryOpen(!chatHistoryOpen);
+                            } else {
+                                setCurrentView('CHAT');
+                                setChatHistoryOpen(true);
+                            }
+                        }} 
+                        expanded={sidebarOpen}
+                        rightIcon={sidebarOpen && currentView === 'CHAT' ? (chatHistoryOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />) : null}
+                    />
+                    
+                    {/* Session List Sub-menu */}
+                    {currentView === 'CHAT' && sidebarOpen && chatHistoryOpen && (
+                        <div className="mt-2 ml-2 pl-3 border-l border-[#333333] space-y-2 animate-fade-in">
+                            <div className="text-[10px] text-[#555] font-medium px-2 py-1 uppercase tracking-wider mb-1 flex items-center gap-1">
+                                {t.historyLimit}
+                            </div>
+                            
+                            {/* New Chat Button */}
+                            <button 
+                                onClick={handleNewSession}
+                                className="w-full text-left px-3 py-2 rounded-md flex items-center gap-2 text-sm text-blue-400 hover:text-white hover:bg-blue-600/20 transition-colors group"
+                            >
+                                <Plus size={14} className="group-hover:scale-110 transition-transform"/>
+                                {t.newChat}
+                            </button>
+
+                            {/* Session List */}
+                            {sessions.sort((a,b) => b.lastUpdated - a.lastUpdated).map(session => (
+                                <button
+                                    key={session.id}
+                                    onClick={() => setActiveSessionId(session.id)}
+                                    className={`w-full text-left px-3 py-2 rounded-md flex items-center gap-2 text-sm transition-colors truncate
+                                        ${activeSessionId === session.id 
+                                            ? 'bg-[#333333] text-white' 
+                                            : 'text-[#888] hover:text-[#ccc] hover:bg-[#252525]'
+                                        }`}
+                                    title={session.title}
+                                >
+                                    <MessageCircle size={14} className="flex-shrink-0" />
+                                    <span className="truncate">{session.title}</span>
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                 </div>
+
                  <NavItem 
                     icon={<LayoutDashboard size={20} />} 
                     label={t.configCenter} 
@@ -301,8 +426,15 @@ export default function App() {
           
           {/* Header */}
           <header className="h-16 bg-white dark:bg-[#1e1e1e] shadow-sm border-b border-gray-200 dark:border-[#333333] flex items-center justify-between px-6 flex-shrink-0 z-10">
-            <h1 className="text-xl font-semibold text-gray-800 dark:text-white capitalize">
-                {currentView.toLowerCase().replace('_', ' ')}
+            <h1 className="text-xl font-semibold text-gray-800 dark:text-white capitalize flex items-center gap-2">
+                {currentView === 'CHAT' ? (
+                     <>
+                        <span>{chatTitle}</span>
+                        <span className="text-gray-400 text-sm font-normal">/ {activeSession.title}</span>
+                     </>
+                ) : (
+                    currentView.toLowerCase().replace('_', ' ')
+                )}
             </h1>
 
             <div className="flex items-center gap-4">
@@ -331,7 +463,7 @@ export default function App() {
   );
 }
 
-const NavItem: React.FC<{ icon: React.ReactNode; label: string; active: boolean; onClick: () => void; expanded: boolean }> = ({ icon, label, active, onClick, expanded }) => (
+const NavItem: React.FC<{ icon: React.ReactNode; label: string; active: boolean; onClick: () => void; expanded: boolean; rightIcon?: React.ReactNode }> = ({ icon, label, active, onClick, expanded, rightIcon }) => (
   <button 
     onClick={onClick}
     title={label}
@@ -342,6 +474,11 @@ const NavItem: React.FC<{ icon: React.ReactNode; label: string; active: boolean;
       } ${!expanded ? 'justify-center' : ''}`}
   >
     <div className="flex-shrink-0">{icon}</div>
-    {expanded && <span className="font-medium whitespace-nowrap">{label}</span>}
+    {expanded && (
+        <div className="flex-1 flex items-center justify-between min-w-0">
+            <span className="font-medium truncate">{label}</span>
+            {rightIcon && <span className="ml-2 flex-shrink-0 opacity-75">{rightIcon}</span>}
+        </div>
+    )}
   </button>
 );
