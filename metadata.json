@@ -1,0 +1,5 @@
+{
+  "name": "SmartOps Platform",
+  "description": "An intelligent operations platform that uses Gemini to match natural language commands with configured APIs and scripts.",
+  "requestFramePermissions": []
+}
