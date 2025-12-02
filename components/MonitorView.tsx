@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { ExecutionLog, Language, ConfigType } from '../types';
-import { Activity, CheckCircle, XCircle, Clock, Server, PlayCircle, BarChart2, PieChart, Eye, X } from 'lucide-react';
+import { Activity, CheckCircle, XCircle, Clock, Server, PlayCircle, BarChart2, PieChart, Eye, X, ChevronDown, ChevronUp, Copy, Check, GitCommit, Split } from 'lucide-react';
 
 interface MonitorViewProps {
   logs: ExecutionLog[];
@@ -29,7 +29,15 @@ const translations = {
     basicInfo: "Basic Information",
     requestDetails: "Request / Configuration Content",
     responseDetails: "Response Output",
-    close: "Close"
+    close: "Close",
+    expand: "Expand All",
+    collapse: "Collapse",
+    copy: "Copy",
+    copied: "Copied",
+    lines: "lines",
+    compare: "Configuration Comparison",
+    prev: "Previous (Revision)",
+    curr: "Current (Latest)"
   },
   zh: {
     title: "监控大盘",
@@ -52,8 +60,173 @@ const translations = {
     basicInfo: "基础信息",
     requestDetails: "请求详情 / 配置内容",
     responseDetails: "响应结果",
-    close: "关闭"
+    close: "关闭",
+    expand: "展开全部",
+    collapse: "收起",
+    copy: "复制",
+    copied: "已复制",
+    lines: "行",
+    compare: "配置变更对比",
+    prev: "变更前 (revision:prev)",
+    curr: "变更后 (revision:latest)"
   }
+};
+
+const SnapshotBlock: React.FC<{ content?: string; language: Language }> = ({ content, language }) => {
+    const t = translations[language];
+    const [isExpanded, setIsExpanded] = useState(false);
+    const [copied, setCopied] = useState(false);
+
+    if (!content) return <span className="text-gray-400 italic">No Data</span>;
+
+    // Remove markdown ticks if present for cleaner display
+    const cleanContent = content.replace(/```[a-z]*\n?/g, '').replace(/```/g, '');
+    const lines = cleanContent.split('\n');
+    const isLong = lines.length > 15; // Threshold for collapsing
+
+    const handleCopy = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        navigator.clipboard.writeText(cleanContent);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
+
+    return (
+        <div className="group relative my-2">
+             <div className={`bg-gray-900 text-gray-100 rounded-lg border border-gray-700 shadow-inner relative ${!isExpanded ? 'overflow-hidden' : ''}`}>
+                
+                {/* Sticky Header: Visible ONLY when Expanded and content is Long */}
+                {isLong && isExpanded && (
+                    <div className="sticky top-0 left-0 right-0 flex items-center justify-end gap-2 p-2 bg-gray-900/95 backdrop-blur border-b border-gray-800 z-10 transition-all">
+                        <span className="mr-auto px-2 text-[10px] text-gray-500 font-mono uppercase tracking-wider">
+                           {lines.length} {t.lines}
+                        </span>
+                         <button 
+                            onClick={handleCopy}
+                            className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded transition-colors"
+                            title={t.copy}
+                        >
+                            {copied ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
+                        </button>
+                        <button 
+                            onClick={() => setIsExpanded(false)}
+                            className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs font-medium shadow-sm transition-colors"
+                        >
+                            <ChevronUp size={14} /> {t.collapse}
+                        </button>
+                    </div>
+                )}
+
+                {/* Content Area */}
+                <div className={`p-4 text-xs font-mono overflow-x-auto whitespace-pre-wrap custom-scrollbar ${!isExpanded && isLong ? 'max-h-[300px]' : ''}`}>
+                    {cleanContent}
+                </div>
+                
+                {/* Gradient Overlay & Expand Button (When Collapsed) */}
+                {!isExpanded && isLong && (
+                    <>
+                        <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-gray-900 via-gray-900/90 to-transparent pointer-events-none" />
+                        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10">
+                             <button 
+                                onClick={() => setIsExpanded(true)}
+                                className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-full text-xs font-medium shadow-lg transition-transform hover:scale-105 active:scale-95 border border-blue-500/50"
+                            >
+                                <ChevronDown size={14} /> {t.expand}
+                            </button>
+                        </div>
+                    </>
+                )}
+
+                {/* Simple Copy Button (When Collapsed or Short) */}
+                {(!isLong || !isExpanded) && (
+                     <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                        <button 
+                            onClick={handleCopy}
+                            className="p-1.5 bg-gray-800/80 text-gray-400 hover:text-white rounded border border-gray-700 hover:bg-gray-700 transition-colors backdrop-blur-sm"
+                            title={t.copy}
+                        >
+                            {copied ? <Check size={12} className="text-green-400" /> : <Copy size={12} />}
+                        </button>
+                     </div>
+                )}
+             </div>
+        </div>
+    );
+};
+
+const DiffViewer: React.FC<{ oldText: string; newText: string; language: Language }> = ({ oldText, newText, language }) => {
+    const t = translations[language];
+    
+    const cleanOld = oldText.replace(/```[a-z]*\n?/g, '').replace(/```/g, '');
+    const cleanNew = newText.replace(/```[a-z]*\n?/g, '').replace(/```/g, '');
+
+    const oldLines = cleanOld.split('\n');
+    const newLines = cleanNew.split('\n');
+    const maxLines = Math.max(oldLines.length, newLines.length);
+
+    return (
+        <div className="flex flex-col h-full bg-[#1e1e1e] rounded-lg border border-gray-700 overflow-hidden shadow-inner font-mono text-xs">
+            {/* Header */}
+            <div className="flex border-b border-gray-700 bg-[#252526]">
+                <div className="w-1/2 p-2 px-4 text-gray-400 font-medium border-r border-gray-700 truncate">
+                    {t.prev}
+                </div>
+                <div className="w-1/2 p-2 px-4 text-gray-400 font-medium truncate">
+                    {t.curr}
+                </div>
+            </div>
+
+            {/* Content Container */}
+            <div className="flex-1 overflow-auto custom-scrollbar">
+                <div className="flex min-w-full">
+                    {/* Left Panel (Old) */}
+                    <div className="w-1/2 border-r border-gray-700 bg-[#1e1e1e] min-w-0">
+                         {Array.from({ length: maxLines }).map((_, i) => {
+                             const line = oldLines[i];
+                             const newLine = newLines[i];
+                             // Simple diff logic: if lines are different (and exist), highlight
+                             const isDiff = line !== newLine;
+                             // Highlight red if different and line exists
+                             const bgClass = (isDiff && line !== undefined) ? 'bg-red-900/30' : '';
+                             
+                             return (
+                                 <div key={`old-${i}`} className={`flex hover:bg-gray-800 ${bgClass} group`}>
+                                     <div className="w-10 flex-shrink-0 text-right pr-3 text-gray-600 select-none py-0.5 bg-[#1e1e1e] border-r border-gray-800/50 group-hover:text-gray-400">
+                                         {i + 1}
+                                     </div>
+                                     <div className="pl-3 pr-2 py-0.5 text-gray-300 whitespace-pre overflow-x-hidden truncate">
+                                         {line || ' '}
+                                     </div>
+                                 </div>
+                             );
+                         })}
+                    </div>
+
+                    {/* Right Panel (New) */}
+                    <div className="w-1/2 bg-[#1e1e1e] min-w-0">
+                         {Array.from({ length: maxLines }).map((_, i) => {
+                             const line = oldLines[i];
+                             const newLine = newLines[i];
+                             const isDiff = line !== newLine;
+                             // Highlight green if different and line exists
+                             const bgClass = (isDiff && newLine !== undefined) ? 'bg-green-900/30' : '';
+
+                             return (
+                                 <div key={`new-${i}`} className={`flex hover:bg-gray-800 ${bgClass} group`}>
+                                     <div className="w-10 flex-shrink-0 text-right pr-3 text-gray-600 select-none py-0.5 bg-[#1e1e1e] border-r border-gray-800/50 group-hover:text-gray-400">
+                                         {i + 1}
+                                     </div>
+                                     <div className="pl-3 pr-2 py-0.5 text-gray-300 whitespace-pre overflow-x-hidden truncate">
+                                         {newLine || ' '}
+                                     </div>
+                                 </div>
+                             );
+                         })}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
 };
 
 export const MonitorView: React.FC<MonitorViewProps> = ({ logs, language }) => {
@@ -116,17 +289,14 @@ export const MonitorView: React.FC<MonitorViewProps> = ({ logs, language }) => {
   const maxTrend = Math.max(...trendData.map(d => d.count), 5);
   const maxTop = Math.max(...topInterfaces.map(d => d.count), 5);
 
-  const renderSnapshot = (content?: string) => {
-      if (!content) return <span className="text-gray-400 italic">No Data</span>;
-      
-      // Try to remove markdown code blocks if present for cleaner display or keep them
-      // Simple rendering:
-      return (
-          <div className="bg-gray-900 text-gray-100 p-3 rounded-md text-xs font-mono overflow-x-auto border border-gray-700 whitespace-pre-wrap">
-              {content.replace(/```[a-z]*\n?/g, '').replace(/```/g, '')}
-          </div>
-      );
-  };
+  // Detect if selected log is a candidate for Diff View
+  const isDiffCandidate = useMemo(() => {
+      if (!selectedLog) return false;
+      const r1 = selectedLog.requestSnapshot?.trim();
+      const r2 = selectedLog.responseSnapshot?.trim();
+      // Heuristic: If both start with '{', treat as JSON diff for Update actions
+      return r1?.startsWith('{') && r2?.startsWith('{');
+  }, [selectedLog]);
 
   return (
     <div className="h-full flex flex-col bg-gray-50 dark:bg-[#121212] overflow-auto">
@@ -294,7 +464,10 @@ export const MonitorView: React.FC<MonitorViewProps> = ({ logs, language }) => {
                                 >
                                     <td className="px-6 py-3 font-medium text-gray-900 dark:text-white truncate max-w-[200px]" title={log.configName}>
                                         <div className="flex items-center gap-2">
-                                            <span className={`w-2 h-2 rounded-full ${log.type === ConfigType.API ? 'bg-blue-500' : 'bg-purple-500'}`}></span>
+                                            <span className={`w-2 h-2 rounded-full ${
+                                                log.type === ConfigType.API ? 'bg-blue-500' : 
+                                                log.type === ConfigType.ENV ? 'bg-green-500' : 'bg-purple-500'
+                                            }`}></span>
                                             {log.configName}
                                         </div>
                                     </td>
@@ -337,22 +510,22 @@ export const MonitorView: React.FC<MonitorViewProps> = ({ logs, language }) => {
        {/* Audit Details Modal */}
        {selectedLog && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white dark:bg-[#1e1e1e] rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden animate-fade-in border border-gray-100 dark:border-[#333333] flex flex-col max-h-[85vh]">
+            <div className={`bg-white dark:bg-[#1e1e1e] rounded-xl shadow-2xl w-full ${isDiffCandidate ? 'max-w-5xl' : 'max-w-2xl'} overflow-hidden animate-fade-in border border-gray-100 dark:border-[#333333] flex flex-col max-h-[85vh]`}>
                 <div className="p-5 border-b border-gray-100 dark:border-[#333333] bg-gray-50/50 dark:bg-[#2d2d2d] flex justify-between items-center">
                     <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                        <Server size={18} className="text-blue-600 dark:text-blue-400" />
-                        {t.logDetails}
+                        {isDiffCandidate ? <GitCommit size={18} className="text-purple-500" /> : <Server size={18} className="text-blue-600 dark:text-blue-400" />}
+                        {isDiffCandidate ? t.compare : t.logDetails}
                     </h3>
                     <button onClick={() => setSelectedLog(null)} className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-200">
                         <X size={20} />
                     </button>
                 </div>
                 
-                <div className="p-6 overflow-y-auto space-y-6">
+                <div className="p-6 overflow-y-auto space-y-6 flex-1">
                     {/* Basic Info */}
                     <section>
                          <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">{t.basicInfo}</h4>
-                         <div className="grid grid-cols-2 gap-4 bg-gray-50 dark:bg-[#2d2d2d] p-4 rounded-lg border border-gray-100 dark:border-[#333333]">
+                         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 bg-gray-50 dark:bg-[#2d2d2d] p-4 rounded-lg border border-gray-100 dark:border-[#333333]">
                             <div>
                                 <label className="text-xs text-gray-500 block">{t.configName}</label>
                                 <span className="font-medium text-gray-900 dark:text-white">{selectedLog.configName}</span>
@@ -376,17 +549,28 @@ export const MonitorView: React.FC<MonitorViewProps> = ({ logs, language }) => {
                          </div>
                     </section>
 
-                    {/* Request Snapshot */}
-                    <section>
-                         <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">{t.requestDetails}</h4>
-                         {renderSnapshot(selectedLog.requestSnapshot)}
-                    </section>
+                    {/* Content Section: Switch between Standard Snapshots and Diff View */}
+                    {isDiffCandidate ? (
+                        <section className="h-[400px]">
+                            <DiffViewer 
+                                oldText={selectedLog.requestSnapshot || ''} 
+                                newText={selectedLog.responseSnapshot || ''} 
+                                language={language}
+                            />
+                        </section>
+                    ) : (
+                        <>
+                            <section>
+                                <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">{t.requestDetails}</h4>
+                                <SnapshotBlock content={selectedLog.requestSnapshot} language={language} />
+                            </section>
 
-                    {/* Response Snapshot */}
-                    <section>
-                         <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">{t.responseDetails}</h4>
-                         {renderSnapshot(selectedLog.responseSnapshot)}
-                    </section>
+                            <section>
+                                <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">{t.responseDetails}</h4>
+                                <SnapshotBlock content={selectedLog.responseSnapshot} language={language} />
+                            </section>
+                        </>
+                    )}
                 </div>
 
                 <div className="p-5 border-t border-gray-100 dark:border-[#333333] bg-gray-50/50 dark:bg-[#2d2d2d] flex justify-end">

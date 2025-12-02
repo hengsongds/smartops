@@ -320,7 +320,9 @@ export const LogsView: React.FC<LogsViewProps> = ({ logs, language }) => {
                                             <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
                                                 log.type === ConfigType.API 
                                                 ? 'bg-blue-50 border-blue-100 text-blue-600 dark:bg-blue-900/20 dark:border-blue-900 dark:text-blue-400' 
-                                                : 'bg-purple-50 border-purple-100 text-purple-600 dark:bg-purple-900/20 dark:border-purple-900 dark:text-purple-400'
+                                                : log.type === ConfigType.ENV
+                                                    ? 'bg-green-50 border-green-100 text-green-600 dark:bg-green-900/20 dark:border-green-900 dark:text-green-400'
+                                                    : 'bg-purple-50 border-purple-100 text-purple-600 dark:bg-purple-900/20 dark:border-purple-900 dark:text-purple-400'
                                             }`}>
                                                 {log.type}
                                             </span>

@@ -709,7 +709,7 @@ export const ChatView: React.FC<ChatViewProps> = ({ sessionId, initialMessages, 
                                  {copiedId === msg.id ? t.copied : t.copy}
                              </button>
                          </div>
-                         <pre className="bg-[#1e1e1e] text-gray-300 p-4 rounded-lg text-xs font-mono overflow-x-auto border border-gray-700 leading-relaxed shadow-inner">
+                         <pre className="bg-[#1e1e1e] text-gray-300 p-4 rounded-lg text-xs font-mono overflow-x-auto border border-gray-700 leading-relaxed shadow-inner w-full max-w-full">
                             {msg.curlCommand}
                          </pre>
                     </div>
@@ -783,7 +783,7 @@ export const ChatView: React.FC<ChatViewProps> = ({ sessionId, initialMessages, 
                      <span className="text-xs text-gray-400 font-medium">{msg.role === 'bot' ? 'SmartOps' : 'You'}</span>
                      <span className="text-[10px] text-gray-300 dark:text-gray-600">{msg.timestamp.split(' ')[1]}</span>
                  </div>
-                 <div className={`px-4 py-3 rounded-2xl shadow-sm text-sm leading-relaxed overflow-hidden max-w-full ${
+                 <div className={`px-4 py-3 rounded-2xl shadow-sm text-sm leading-relaxed max-w-full ${
                      msg.role === 'user' 
                      ? 'bg-blue-600 text-white rounded-tr-none' 
                      : (msg.isError 

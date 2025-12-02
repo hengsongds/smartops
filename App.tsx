@@ -215,20 +215,73 @@ export default function App() {
   // Previous fallback logic caused confusion where one language title would persist to another.
   const displayChatTitle = customChatTitles[language] || t.smartChat;
 
+  const handleAddLog = (log: ExecutionLog) => {
+    setLogs(prev => [log, ...prev]);
+  };
+
   const handleAddConfig = (newConfig: OpsConfig) => {
     setConfigs([...configs, newConfig]);
+    
+    // Audit Log for Create
+    const log: ExecutionLog = {
+        id: Date.now().toString(),
+        configId: newConfig.id,
+        configName: newConfig.name,
+        type: newConfig.type,
+        timestamp: new Date().toISOString(),
+        durationMs: 0,
+        status: 'SUCCESS',
+        returnCode: 201, // Created
+        resultSummary: language === 'zh' ? '配置已创建' : 'Configuration Created',
+        requestSnapshot: language === 'zh' ? '操作: 创建新配置' : 'Action: Create New Configuration',
+        responseSnapshot: JSON.stringify(newConfig, null, 2)
+    };
+    handleAddLog(log);
   };
 
   const handleUpdateConfig = (updatedConfig: OpsConfig) => {
+    const oldConfig = configs.find(c => c.id === updatedConfig.id);
     setConfigs(configs.map(c => c.id === updatedConfig.id ? updatedConfig : c));
+    
+    // Audit Log for Update with CLEAN Diff Snapshot
+    // We remove the "[PREVIOUS CONFIGURATION]" text prefix to allow cleaner JSON diffing in UI
+    const log: ExecutionLog = {
+        id: Date.now().toString(),
+        configId: updatedConfig.id,
+        configName: updatedConfig.name,
+        type: updatedConfig.type,
+        timestamp: new Date().toISOString(),
+        durationMs: 0,
+        status: 'SUCCESS',
+        returnCode: 200,
+        resultSummary: language === 'zh' ? '配置已更新' : 'Configuration Updated',
+        requestSnapshot: oldConfig ? JSON.stringify(oldConfig, null, 2) : '',
+        responseSnapshot: JSON.stringify(updatedConfig, null, 2)
+    };
+    handleAddLog(log);
   };
 
   const handleDeleteConfig = (id: string) => {
+    const configToDelete = configs.find(c => c.id === id);
     setConfigs(configs.filter(c => c.id !== id));
-  };
-
-  const handleAddLog = (log: ExecutionLog) => {
-    setLogs(prev => [log, ...prev]);
+    
+    // Audit Log for Delete
+    if (configToDelete) {
+         const log: ExecutionLog = {
+            id: Date.now().toString(),
+            configId: configToDelete.id,
+            configName: configToDelete.name,
+            type: configToDelete.type,
+            timestamp: new Date().toISOString(),
+            durationMs: 0,
+            status: 'SUCCESS',
+            returnCode: 204, // No Content
+            resultSummary: language === 'zh' ? '配置已删除' : 'Configuration Deleted',
+            requestSnapshot: (language === 'zh' ? '[已删除配置]\n' : '[DELETED CONFIGURATION]\n') + JSON.stringify(configToDelete, null, 2),
+            responseSnapshot: language === 'zh' ? '操作: 删除配置' : 'Action: Delete Configuration'
+        };
+        handleAddLog(log);
+    }
   };
 
   // Session Management
